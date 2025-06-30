@@ -136,3 +136,36 @@ container_memory_usage_bytes{pod=~"virt-launcher-vm.*"}
 - **VNC**: More efficient for simple desktop operations
 - **Packet Size**: RDP typically uses larger packets
 - **CPU Correlation**: Graphics-intensive operations show higher correlation
+
+## VNC Setup Notes
+### Managing VNC Server
+```bash
+# Kill current VNC session
+vncserver -kill :0
+vncserver -kill :1
+
+# Check running VNC sessions
+vncserver -list
+
+# Start VNC manually (if not using service)
+vncserver :0 -geometry 1920x1080 -depth 24 -localhost no
+
+## When using another display like :1, the port for VNC changes from 5900 to 5901
+vncserver :1 -geometry 1920x1080 -depth 24 -localhost no
+
+
+# View VNC logs
+cat ~/.vnc/*.log
+```
+
+- VNC Password is set to `vm2test`
+
+# Check Ports
+```bash
+# Verify VNC is accessible externally
+sudo netstat -tlnp | grep 5901
+
+# Test local connection first
+ss -tuln | grep 5901
+```
+
