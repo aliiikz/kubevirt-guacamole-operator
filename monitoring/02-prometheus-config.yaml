@@ -1,0 +1,89 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: monitoring
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 30s
+      evaluation_interval: 30s
+      external_labels:
+        cluster: 'kubevirt-guacamole'
+
+    rule_files:
+      - "*.rules"
+
+    scrape_configs:
+      # cAdvisor (built into kubelet) - Essential for container metrics
+      - job_name: 'kubernetes-cadvisor'
+        kubernetes_sd_configs:
+        - role: node
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+        - action: labelmap
+          regex: __meta_kubernetes_node_label_(.+)
+        - target_label: __address__
+          replacement: kubernetes.default.svc:443
+        - source_labels: [__meta_kubernetes_node_name]
+          regex: (.+)
+          target_label: __metrics_path__
+          replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
+
+      # Node Exporter
+      - job_name: 'node-exporter'
+        kubernetes_sd_configs:
+        - role: endpoints
+        relabel_configs:
+        - source_labels: [__meta_kubernetes_endpoints_name]
+          regex: 'node-exporter'
+          action: keep
+        - action: labelmap
+          regex: __meta_kubernetes_pod_label_(.+)
+        - source_labels: [__meta_kubernetes_namespace]
+          action: replace
+          target_label: kubernetes_namespace
+
+      # Kubernetes pods with annotation-based scraping
+      - job_name: 'kubernetes-pods'
+        kubernetes_sd_configs:
+        - role: pod
+        relabel_configs:
+        - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+          action: keep
+          regex: true
+        - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+          action: replace
+          target_label: __metrics_path__
+          regex: (.+)
+        - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+          action: replace
+          regex: ([^:]+)(?::\d+)?;(\d+)
+          replacement: $1:$2
+          target_label: __address__
+        - action: labelmap
+          regex: __meta_kubernetes_pod_label_(.+)
+        - source_labels: [__meta_kubernetes_namespace]
+          action: replace
+          target_label: kubernetes_namespace
+
+  network-rules.yml: |
+    groups:
+    - name: network.rules
+      rules:
+      - record: vm_network_receive_bytes_rate
+        expr: rate(container_network_receive_bytes_total{pod=~"virt-launcher-.*"}[5m])
+      - record: vm_network_transmit_bytes_rate
+        expr: rate(container_network_transmit_bytes_total{pod=~"virt-launcher-.*"}[5m])
+      - record: vm_network_total_bytes_rate
+        expr: vm_network_receive_bytes_rate + vm_network_transmit_bytes_rate
+      
+    - name: protocol-comparison.rules
+      rules:
+      - record: rdp_vm_network_bytes_rate
+        expr: vm_network_total_bytes_rate{pod=~".*vm.*"} and on(pod) kube_pod_labels{label_protocol="rdp"}
+      - record: vnc_vm_network_bytes_rate  
+        expr: vm_network_total_bytes_rate{pod=~".*vm.*"} and on(pod) kube_pod_labels{label_protocol="vnc"}

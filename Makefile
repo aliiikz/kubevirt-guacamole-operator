@@ -163,6 +163,40 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	$(KUSTOMIZE) build config/default | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 
+##@ Monitoring
+
+.PHONY: deploy-monitoring
+deploy-monitoring: ## Deploy comprehensive monitoring stack for network analysis
+	@echo "🚀 Deploying monitoring stack..."
+	cd monitoring && ./deploy.sh
+
+.PHONY: cleanup-monitoring
+cleanup-monitoring: ## Remove monitoring stack
+	@echo "🧹 Cleaning up monitoring stack..."
+	cd monitoring && ./cleanup.sh
+
+.PHONY: monitoring-status
+monitoring-status: ## Check monitoring stack status
+	@echo "📊 Monitoring Stack Status:"
+	@kubectl get pods -n monitoring -o wide || echo "Monitoring namespace not found"
+	@echo ""
+	@echo "🌐 Access URLs (if running):"
+	@echo "  📊 Grafana:    http://localhost:30300"
+	@echo "  📈 Prometheus: http://localhost:30090" 
+	@echo "  🔍 Jaeger:     http://localhost:30686"
+
+.PHONY: network-analysis
+network-analysis: ## Show network analysis queries for RDP vs VNC comparison
+	@echo "📊 Network Analysis Queries for RDP vs VNC:"
+	@echo ""
+	@echo "# Total VM Network Traffic:"
+	@echo "sum(rate(container_network_transmit_bytes_total{pod=~\"virt-launcher-vm.*\"}[5m]) + rate(container_network_receive_bytes_total{pod=~\"virt-launcher-vm.*\"}[5m])) by (pod)"
+	@echo ""
+	@echo "# RDP vs VNC Comparison (VM1=RDP, VM2=VNC):"
+	@echo "sum(rate(container_network_transmit_bytes_total{pod=~\"virt-launcher-vm1.*\"}[5m])) / sum(rate(container_network_transmit_bytes_total{pod=~\"virt-launcher-vm2.*\"}[5m]))"
+	@echo ""
+	@echo "📋 For more queries, see: monitoring/network-analysis-queries.md"
+
 ##@ Dependencies
 
 ## Location to install dependencies to
