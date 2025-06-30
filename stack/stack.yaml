@@ -1,0 +1,257 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: guacamole
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: guacamole-config
+  #namespace: guacamole
+data:
+  guacamole.properties: |
+    guacd-hostname=guacd
+    guacd-port=4822
+    postgresql-hostname=postgres
+    postgresql-port=5432
+    postgresql-database=guacamole_db
+    postgresql-username=guacamole
+    postgresql-password=guacamole
+    openid-allow-unverified-users=true
+    openid-username-claim=preferred_username
+    openid-authorization-endpoint=http://192.168.1.4:30081/realms/GuacamoleRealm/protocol/openid-connect/auth
+    openid-token-endpoint=http://192.168.1.4:30081/realms/GuacamoleRealm/protocol/openid-connect/token
+    openid-jwks-endpoint=http://192.168.1.4:30081/realms/GuacamoleRealm/protocol/openid-connect/certs
+    openid-issuer=http://192.168.1.4:30081/realms/GuacamoleRealm
+    openid-client-id=guacamole
+    openid-redirect-uri=http://192.168.1.4:30080/guacamole/
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: guacd
+  #namespace: guacamole
+spec:
+  selector:
+    app: guacd
+  ports:
+    - protocol: TCP
+      port: 4822
+      targetPort: 4822
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  #namespace: guacamole
+spec:
+  selector:
+    app: postgres
+  ports:
+    - protocol: TCP
+      port: 5432
+      targetPort: 5432
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: guacamole
+  #namespace: guacamole
+spec:
+  type: NodePort
+  selector:
+    app: guacamole
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      nodePort: 30080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: guacd
+  #namespace: guacamole
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: guacd
+  template:
+    metadata:
+      labels:
+        app: guacd
+    spec:
+      containers:
+        - name: guacd
+          image: guacamole/guacd:1.5.5
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4822
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  #namespace: guacamole
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/guacamole
+            - name: POSTGRES_DB
+              value: guacamole_db
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+            - name: init-scripts
+              mountPath: /docker-entrypoint-initdb.d
+      volumes:
+        - name: postgres-storage
+          emptyDir: {}
+        - name: init-scripts
+          hostPath:
+            path: /home/aliii/Programming/Cloud/vahid/db/init
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: guacamole
+  #namespace: guacamole
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: guacamole
+  template:
+    metadata:
+      labels:
+        app: guacamole
+    spec:
+      containers:
+        - name: guacamole
+          image: guacamole/guacamole:1.5.5
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            - name: POSTGRESQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: GUACAMOLE_HOME
+              value: /etc/guacamole
+            - name: GUACD_HOSTNAME
+              value: guacd
+            - name: GUACD_PORT
+              value: "4822"
+          volumeMounts:
+            - name: guacamole-config
+              mountPath: /etc/guacamole
+            - name: quickconnect-extension
+              mountPath: /etc/guacamole/extensions
+            - name: jdbc-lib
+              mountPath: /etc/guacamole/lib
+      volumes:
+        - name: guacamole-config
+          configMap:
+            name: guacamole-config
+        - name: quickconnect-extension
+          hostPath:
+            path: /home/aliii/Programming/Cloud/vahid/guacamole/extensions
+        - name: jdbc-lib
+          hostPath:
+            path: /home/aliii/Programming/Cloud/vahid/guacamole/lib
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  #namespace: guacamole
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: keycloak
+  template:
+    metadata:
+      labels:
+        app: keycloak
+    spec:
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:24.0.4
+          args:
+            - start-dev
+            - --hostname-url=http://192.168.1.4:30081
+            - --hostname-strict=false
+          env:
+            - name: KEYCLOAK_ADMIN
+              value: admin
+            - name: KEYCLOAK_ADMIN_PASSWORD
+              value: admin
+            - name: KC_SPI_EVENTS_LISTENER_SAMPLE_EVENT_LISTENER_ENABLED
+              value: "true"
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: keycloak-providers
+              mountPath: /opt/keycloak/providers
+      volumes:
+        - name: keycloak-providers
+          hostPath:
+            path: /home/aliii/Programming/Cloud/vahid/keycloak/providers
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  #namespace: guacamole
+spec:
+  type: NodePort
+  selector:
+    app: keycloak
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+      nodePort: 30081
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secret
+  #namespace: guacamole
+type: Opaque
+data:
+  POSTGRES_USER: Z3VhY2Ftb2xl
+  POSTGRES_PASSWORD: Z3VhY2Ftb2xl

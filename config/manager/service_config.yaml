@@ -1,0 +1,9 @@
+# ConfigMap for service configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vm-watcher-config
+  namespace: system
+data:
+  SERVICE_URL: "http://your-notification-service:8080/api/vms"
+  HTTP_TIMEOUT: "30s"

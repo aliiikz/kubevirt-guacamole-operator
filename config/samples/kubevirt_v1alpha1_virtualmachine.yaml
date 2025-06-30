@@ -1,0 +1,9 @@
+apiVersion: kubevirt.setofangdar.polito.it/v1alpha1
+kind: VirtualMachine
+metadata:
+  labels:
+    app.kubernetes.io/name: kubebuilderproject
+    app.kubernetes.io/managed-by: kustomize
+  name: virtualmachine-sample
+spec:
+  # TODO(user): Add fields here

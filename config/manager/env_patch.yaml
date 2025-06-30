@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: controller-manager
+  namespace: system
+spec:
+  selector:
+    matchLabels:
+      app: controller-manager
+  template:
+    metadata:
+      labels:
+        app: controller-manager
+    spec:
+      containers:
+        - name: manager
+          env:
+            - name: GUACAMOLE_BASE_URL
+              value: "https://guacamole.example.com"
+            - name: GUACAMOLE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: guacamole-credentials
+                  key: username
+            - name: GUACAMOLE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: guacamole-credentials
+                  key: password
+          args:
+            - --leader-elect
+            - --guacamole-url=$(GUACAMOLE_BASE_URL)
+            - --guacamole-username=$(GUACAMOLE_USERNAME)
+            - --guacamole-password=$(GUACAMOLE_PASSWORD)
+            - --http-timeout=30s
