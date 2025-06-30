@@ -50,3 +50,5 @@ bin/*
 # But keep the directory itself
 !bin/.gitkeep
 Dockerfile.cross
+
+stack/virtctl

@@ -6,6 +6,9 @@ metadata:
   labels:
     kubevirt.io/os: linux
   name: vm2
+  annotations:
+    vm-watcher.setofangdar.polito.it/protocol: "vnc"
+    vm-watcher.setofangdar.polito.it/port: "5900"
 spec:
   runStrategy: Always
   template:

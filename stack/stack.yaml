@@ -134,7 +134,7 @@ spec:
           emptyDir: {}
         - name: init-scripts
           hostPath:
-            path: /home/aliii/Programming/Cloud/vahid/db/init
+            path: /home/aliii/Github/kubevirt-guacamole-operator/stack/db/init
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -187,10 +187,10 @@ spec:
             name: guacamole-config
         - name: quickconnect-extension
           hostPath:
-            path: /home/aliii/Programming/Cloud/vahid/guacamole/extensions
+            path: /home/aliii/Github/kubevirt-guacamole-operator/stack/guacamole/extensions
         - name: jdbc-lib
           hostPath:
-            path: /home/aliii/Programming/Cloud/vahid/guacamole/lib
+            path: /home/aliii/Github/kubevirt-guacamole-operator/stack/guacamole/lib
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -229,7 +229,7 @@ spec:
       volumes:
         - name: keycloak-providers
           hostPath:
-            path: /home/aliii/Programming/Cloud/vahid/keycloak/providers
+            path: /home/aliii/Github/kubevirt-guacamole-operator/stack/keycloak/providers
 ---
 apiVersion: v1
 kind: Service

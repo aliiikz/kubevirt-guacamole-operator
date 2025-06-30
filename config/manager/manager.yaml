@@ -68,7 +68,7 @@ spec:
           name: manager
           env:
             - name: GUACAMOLE_BASE_URL
-              value: "http://guacamole.default.svc.cluster.local:8080/guacamole"
+              value: "http://guacamole.guacamole.svc.cluster.local:8080/guacamole"
             - name: GUACAMOLE_USERNAME
               valueFrom:
                 secretKeyRef:

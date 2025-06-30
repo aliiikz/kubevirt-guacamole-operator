@@ -2,7 +2,7 @@
 
 set -e
 
-VM_DIR="/home/aliii/Programming/KubeBuilderProject/virtualmachines"
+VM_DIR="/home/aliii/Github/kubevirt-guacamole-operator/virtualmachines"
 
 if [ "$#" -ne 2 ]; then
     echo "Usage: $0 <datavolume_yml> <vm_yml>"
