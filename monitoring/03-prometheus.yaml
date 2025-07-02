@@ -50,7 +50,8 @@ spec:
             defaultMode: 420
             name: prometheus-config
         - name: prometheus-storage-volume
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: prometheus-storage
 ---
 apiVersion: v1
 kind: Service
