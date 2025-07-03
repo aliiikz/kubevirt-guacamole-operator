@@ -5,5 +5,5 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 images:
 - name: controller
-  newName: vm-watcher
+  newName: localhost:30500/vm-watcher
   newTag: latest

@@ -1,27 +1,56 @@
-# kubebuilderproject
-// TODO(user): Add simple overview of use/purpose
+# KubeVirt Guacamole Operator
+
+A Kubernetes operator that manages KubeVirt virtual machines with integrated Apache Guacamole remote desktop access.
 
 ## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+
+This operator provides automated management of KubeVirt virtual machines with built-in remote desktop access through Apache Guacamole. It simplifies the deployment and management of virtual machines in Kubernetes clusters while providing web-based remote access capabilities.
 
 ## Getting Started
 
 ### Prerequisites
 - go version v1.24.0+
-- docker version 17.03+.
-- kubectl version v1.11.3+.
-- Access to a Kubernetes v1.11.3+ cluster.
+- docker version 17.03+
+- kubectl version v1.11.3+
+- Access to a Kubernetes v1.11.3+ cluster with KubeVirt installed
 
-### To Deploy on the cluster
-**Build and push your image to the location specified by `IMG`:**
+### Quick Start
+
+Use the provided workflow script for easy setup and deployment:
 
 ```sh
-make docker-build docker-push IMG=<some-registry>/kubebuilderproject:tag
+# Complete setup from scratch
+./workflow.sh full-setup
+
+# Individual commands
+./workflow.sh setup-registry    # Setup Docker registry
+./workflow.sh build             # Build operator image
+./workflow.sh build-custom-vm   # Build custom Ubuntu VM image
+./workflow.sh push               # Build and push operator to Docker Registry
+./workflow.sh deploy             # Deploy operator
+./workflow.sh monitoring        # Deploy monitoring stack
+
+# Show all available commands
+./workflow.sh help
 ```
 
-**NOTE:** This image ought to be published in the personal registry you specified.
-And it is required to have access to pull the image from the working environment.
-Make sure you have the proper permission to the registry if the above commands don’t work.
+### Manual Deployment
+
+**Build operator image:**
+
+```sh
+make docker-build
+# OR
+./workflow.sh build
+```
+
+**Build custom VM image:**
+
+```sh
+make build-custom-vm
+# OR
+./workflow.sh build-custom-vm
+```
 
 **Install the CRDs into the cluster:**
 
@@ -29,93 +58,64 @@ Make sure you have the proper permission to the registry if the above commands d
 make install
 ```
 
-**Deploy the Manager to the cluster with the image specified by `IMG`:**
+**Deploy the operator to the cluster:**
 
 ```sh
-make deploy IMG=<some-registry>/kubebuilderproject:tag
+make deploy
+# OR
+./workflow.sh deploy
 ```
 
-> **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin
-privileges or be logged in as admin.
-
-**Create instances of your solution**
-You can apply the samples (examples) from the config/sample:
+**Create VirtualMachine instances:**
 
 ```sh
 kubectl apply -k config/samples/
 ```
 
->**NOTE**: Ensure that the samples has default values to test it out.
+### Cleanup
 
-### To Uninstall
-**Delete the instances (CRs) from the cluster:**
-
-```sh
-kubectl delete -k config/samples/
-```
-
-**Delete the APIs(CRDs) from the cluster:**
+**Complete cleanup (removes everything):**
 
 ```sh
-make uninstall
+./workflow.sh cleanup-all
 ```
 
-**UnDeploy the controller from the cluster:**
+**Remove monitoring only:**
+
+```sh
+./workflow.sh cleanup
+```
+
+**Manual cleanup:**
 
 ```sh
 make undeploy
+make uninstall
 ```
 
-## Project Distribution
+## Project Structure
 
-Following the options to release and provide this solution to the users.
+- `workflow.sh` - Main automation script for building, deploying, and managing the operator
+- `Makefile` - Build targets for the operator
+- `config/` - Kubernetes manifests and configurations
+- `api/` - Custom Resource Definitions (CRDs)
+- `internal/controller/` - Operator controller logic
+- `stack/` - Complete deployment stack with Guacamole integration
+- `monitoring/` - Prometheus and Grafana monitoring setup
 
-### By providing a bundle with all YAML files
+## Monitoring
 
-1. Build the installer for the image built and published in the registry:
+Deploy monitoring stack:
 
 ```sh
-make build-installer IMG=<some-registry>/kubebuilderproject:tag
+./workflow.sh monitoring
 ```
 
-**NOTE:** The makefile target mentioned above generates an 'install.yaml'
-file in the dist directory. This file contains all the resources built
-with Kustomize, which are necessary to install this project without its
-dependencies.
+This sets up Prometheus and Grafana for monitoring your virtual machines and operator.
 
-2. Using the installer
-
-Users can just run 'kubectl apply -f <URL for YAML BUNDLE>' to install
-the project, i.e.:
-
-```sh
-kubectl apply -f https://raw.githubusercontent.com/<org>/kubebuilderproject/<tag or branch>/dist/install.yaml
-```
-
-### By providing a Helm Chart
-
-1. Build the chart using the optional helm plugin
-
-```sh
-kubebuilder edit --plugins=helm/v1-alpha
-```
-
-2. See that a chart was generated under 'dist/chart', and users
-can obtain this solution from there.
-
-**NOTE:** If you change the project, you need to update the Helm Chart
-using the same command above to sync the latest changes. Furthermore,
-if you create webhooks, you need to use the above command with
-the '--force' flag and manually ensure that any custom configuration
-previously added to 'dist/chart/values.yaml' or 'dist/chart/manager/manager.yaml'
-is manually re-applied afterwards.
-
-## Contributing
-// TODO(user): Add detailed information on how you would like others to contribute to this project
-
-**NOTE:** Run `make help` for more information on all potential `make` targets
-
-More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
+**Access URLs:**
+- Prometheus: http://localhost:30090
+- Grafana: http://localhost:30091 (admin/admin)
 
 ## License
 
