@@ -4,19 +4,13 @@ metadata:
   name: controller-manager
   namespace: system
 spec:
-  selector:
-    matchLabels:
-      app: controller-manager
   template:
-    metadata:
-      labels:
-        app: controller-manager
     spec:
       containers:
         - name: manager
           env:
             - name: GUACAMOLE_BASE_URL
-              value: "https://guacamole.example.com"
+              value: "http://guacamole.guacamole.svc.cluster.local:8080/guacamole"
             - name: GUACAMOLE_USERNAME
               valueFrom:
                 secretKeyRef:
@@ -27,9 +21,3 @@ spec:
                 secretKeyRef:
                   name: guacamole-credentials
                   key: password
-          args:
-            - --leader-elect
-            - --guacamole-url=$(GUACAMOLE_BASE_URL)
-            - --guacamole-username=$(GUACAMOLE_USERNAME)
-            - --guacamole-password=$(GUACAMOLE_PASSWORD)
-            - --http-timeout=30s

@@ -14,6 +14,12 @@ namePrefix: kubebuilderproject-
 #  pairs:
 #    someName: someValue
 
+# Image replacement for registry
+images:
+  - name: vm-watcher
+    newName: 192.168.1.4
+    newTag: 30500/vm-watcher:latest
+
 resources:
   #
   # - ../crd watching actual KubeVirt VirtualMachine resources, ignoring custom CRD

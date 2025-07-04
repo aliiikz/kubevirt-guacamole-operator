@@ -1,0 +1,14 @@
+# Persistent Storage for Docker Registry
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: registry-data-pvc
+  namespace: docker-registry
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: local-path # Default storage class for this cluster

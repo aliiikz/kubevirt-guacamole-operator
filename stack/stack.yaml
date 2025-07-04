@@ -7,7 +7,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: guacamole-config
-  #namespace: guacamole
+  namespace: guacamole
 data:
   guacamole.properties: |
     guacd-hostname=guacd
@@ -30,7 +30,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: guacd
-  #namespace: guacamole
+  namespace: guacamole
 spec:
   selector:
     app: guacd
@@ -44,7 +44,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: postgres
-  #namespace: guacamole
+  namespace: guacamole
 spec:
   selector:
     app: postgres
@@ -58,7 +58,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: guacamole
-  #namespace: guacamole
+  namespace: guacamole
 spec:
   type: NodePort
   selector:
@@ -73,7 +73,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: guacd
-  #namespace: guacamole
+  namespace: guacamole
 spec:
   replicas: 1
   selector:
@@ -95,7 +95,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: postgres
-  #namespace: guacamole
+  namespace: guacamole
 spec:
   replicas: 1
   selector:
@@ -140,7 +140,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: guacamole
-  #namespace: guacamole
+  namespace: guacamole
 spec:
   replicas: 1
   selector:
@@ -196,7 +196,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: keycloak
-  #namespace: guacamole
+  namespace: guacamole
 spec:
   replicas: 1
   selector:
@@ -235,7 +235,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: keycloak
-  #namespace: guacamole
+  namespace: guacamole
 spec:
   type: NodePort
   selector:
@@ -250,7 +250,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: postgres-secret
-  #namespace: guacamole
+  namespace: guacamole
 type: Opaque
 data:
   POSTGRES_USER: Z3VhY2Ftb2xl

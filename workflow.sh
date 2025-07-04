@@ -35,34 +35,63 @@ print_error() {
 }
 
 show_help() {
-    echo "Usage: $0 [COMMAND]"
-    echo ""
+    echo "Usage: $0 [CO    full-setup)
+        print_header "COMPLETE SETUP WORKFLOW"
+        install_kubevirt
+        sleep 90
+        install_cdi
+        sleep 30
+        setup_registry
+        sleep 30
+        build_operator
+        push_operator
+        make install  # Install CRDs before deploying operator
+        make deploy
+        deploy_stack
+        deploy_monitoring
+        print_header "SETUP COMPLETE!"
+        show_status"
+
     echo "Commands:"
+    echo "  setup-kubevirt     Setup KubeVirt (required for VMs)"
+    echo "  setup-cdi          Setup CDI (required for VMs)"
     echo "  setup-registry     Setup Docker Registry"
-    echo "  build              Build operator image"
-    echo "  build-custom-vm    Build custom Ubuntu VM image"
-    echo "  push               Build and push operator to Docker Registry"
-    echo "  deploy             Deploy operator using Docker Registry"
+    echo "  build-operator     Build operator image"
+    echo "  push-operator      Build and push operator to Docker Registry"
+    echo "  deploy             Deploy operator (installs CRDs and deploys operator)"
+    echo "  deploy-stack       Deploy Guacamole stack (Guacamole, Postgres, Keycloak)"
+    echo "  monitoring         Deploy monitoring stack (Prometheus & Grafana)"
+    echo "  push-custom-vm     Build and push custom Ubuntu Docker image to Registry"
+    echo "  status             Show status of all components"
+    echo "  cleanup            Clean up monitoring stack"
     echo "  cleanup-all        COMPLETE CLEANUP - Reset cluster to clean slate"
     echo "  force-clean-ns     Force clean stuck namespaces"
-    echo "  status             Show status of all components"
-    echo "  full-setup         Complete setup: Registry + Build + Push + Deploy"
+    echo "  full-setup         Complete setup: KubeVirt + CDI + Registry + Build + Push + Deploy + Stack + Monitoring"
     echo "  help               Show this help"
     echo ""
     echo "Examples:"
     echo "  $0 full-setup         # Complete setup from scratch"
-    echo "  $0 build              # Just build the operator image"
+    echo "  $0 build-operator     # Just build the operator image"
     echo "  $0 build-custom-vm    # Build custom Ubuntu VM image"
-    echo "  $0 push               # Build and push operator to registry"
+    echo "  $0 push-custom-vm     # Build and push custom Ubuntu Docker image to registry"
+    echo "  $0 push-operator      # Build and push operator to registry"
     echo "  $0 cleanup-all        # Complete cleanup - removes everything!"
 }
 
 setup_registry() {
     print_header "SETTING UP DOCKER REGISTRY"
     
-    # Deploy simple Docker registry
+    # Deploy Docker registry (this creates the namespace first)
     echo -e "${BLUE}Deploying Docker Registry from repository/docker-registry.yaml...${NC}"
     kubectl apply -f repository/docker-registry.yaml
+    
+    # Wait a moment for namespace to be created
+    echo -e "${BLUE}Waiting for namespace to be ready...${NC}"
+    kubectl wait --for=condition=Ready --timeout=30s namespace/docker-registry || true
+    
+    # Now apply the persistent storage
+    echo -e "${BLUE}Setting up persistent storage for registry...${NC}"
+    kubectl apply -f repository/registry-storage.yaml
     
     # Wait for registry to be ready
     echo -e "${BLUE}Waiting for Docker Registry to be ready...${NC}"
@@ -71,11 +100,14 @@ setup_registry() {
     # Check registry status
     echo -e "${BLUE}Checking Docker Registry deployment status...${NC}"
     kubectl get pods -n docker-registry
+
+    # Wait Until It starts
+    sleep 30
     
     print_success "Docker Registry setup completed"
-    echo -e "${GREEN}Registry is available at: ${BLUE}http://localhost:30500${NC}"
-    echo -e "${GREEN}Registry UI is available at: ${BLUE}http://localhost:30501${NC}"
-    echo -e "${GREEN}To use: ${BLUE}docker tag <image> localhost:30500/<image> && docker push localhost:30500/<image>${NC}"
+    echo -e "${GREEN}Registry is available at: ${BLUE}http://192.168.1.4:30500${NC}"
+    echo -e "${GREEN}Registry UI is available at: ${BLUE}http://192.168.1.4:30501${NC}"
+    echo -e "${GREEN}To use: ${BLUE}docker tag <image> 192.168.1.4:30500/<image> && docker push 192.168.1.4:30500/<image>${NC}"
 }
 
 build_operator() {
@@ -126,6 +158,39 @@ build_custom_vm_image() {
     echo "  VNC: 5900, 5901"
     
     print_success "Custom VM image build completed"
+}
+
+push_custom_vm_image() {
+    print_header "PUSHING CUSTOM VM IMAGE TO DOCKER REGISTRY"
+    
+    CUSTOM_IMAGE_NAME="custom-ubuntu-desktop"
+    CUSTOM_IMAGE_TAG="22.04"
+    LOCAL_IMAGE_NAME="${CUSTOM_IMAGE_NAME}:${CUSTOM_IMAGE_TAG}"
+    REGISTRY_IMAGE_NAME="${REGISTRY_HOST}:${REGISTRY_PORT}/${CUSTOM_IMAGE_NAME}:${CUSTOM_IMAGE_TAG}"
+    
+    echo "Building custom Ubuntu desktop image..."
+    cd virtualmachines/custom_image
+    docker build -t "${LOCAL_IMAGE_NAME}" .
+    cd ../..
+    
+    echo "Tagging image for registry..."
+    docker tag "${LOCAL_IMAGE_NAME}" "${REGISTRY_IMAGE_NAME}"
+    
+    echo "Pushing to Docker registry..."
+    if docker push "${REGISTRY_IMAGE_NAME}" 2>/dev/null; then
+        print_success "Successfully pushed custom VM image to Docker Registry"
+        echo "Registry image: ${REGISTRY_IMAGE_NAME}"
+    else
+        print_warning "Docker Registry push failed. Possible reasons:"
+        echo "      - Docker Registry is not running (run: ./workflow.sh setup-registry)"
+        echo "      - Network connectivity issues"
+        echo ""
+        echo "   📋 To push manually later:"
+        echo "      docker tag ${LOCAL_IMAGE_NAME} ${REGISTRY_IMAGE_NAME}"
+        echo "      docker push ${REGISTRY_IMAGE_NAME}"
+    fi
+    
+    print_success "Custom VM image push completed"
 }
 
 push_operator() {
@@ -225,6 +290,39 @@ cleanup_monitoring() {
     print_success "Monitoring stack cleanup completed!"
 }
 
+deploy_stack() {
+    print_header "DEPLOYING GUACAMOLE STACK"
+    
+    echo "Deploying Guacamole stack (Guacamole, Postgres, Keycloak)..."
+    kubectl apply -f stack/stack.yaml
+    
+    echo "Waiting for components to be ready..."
+    echo "  Waiting for Postgres..."
+    kubectl wait --for=condition=Ready pod -l app=postgres -n guacamole --timeout=300s || true
+    
+    echo "  Waiting for Guacd..."
+    kubectl wait --for=condition=Ready pod -l app=guacd -n guacamole --timeout=300s || true
+    
+    echo "  Waiting for Guacamole..."
+    kubectl wait --for=condition=Ready pod -l app=guacamole -n guacamole --timeout=300s || true
+    
+    echo "  Waiting for Keycloak..."
+    kubectl wait --for=condition=Ready pod -l app=keycloak -n guacamole --timeout=300s || true
+    
+    echo "Checking stack status..."
+    kubectl get pods -n guacamole
+    
+    print_success "Guacamole stack deployed successfully!"
+    echo ""
+    echo "Access URLs:"
+    echo "  Guacamole: http://192.168.1.4:30080/guacamole/"
+    echo "  Keycloak: http://192.168.1.4:30081/"
+    echo ""
+    echo "Default Keycloak admin credentials:"
+    echo "  Username: admin"
+    echo "  Password: admin"
+}
+
 cleanup_all() {
     print_header "COMPLETE CLUSTER CLEANUP - RESET TO CLEAN SLATE"
     
@@ -239,169 +337,80 @@ cleanup_all() {
     
     print_header "DELETING ALL PROJECT RESOURCES"
     
-    # 1. Stop and remove all VMs first
-    echo -e "${BLUE}Stopping all Virtual Machines...${NC}"
-    kubectl get vm --all-namespaces --no-headers 2>/dev/null | awk '{print $2 " -n " $1}' | xargs -r -I {} kubectl delete vm {} --force --grace-period=0 || true
-    kubectl get vmi --all-namespaces --no-headers 2>/dev/null | awk '{print $2 " -n " $1}' | xargs -r -I {} kubectl delete vmi {} --force --grace-period=0 || true
+    # 1. Remove operator deployment
+    echo -e "${BLUE}Removing operator deployment...${NC}"
+    make undeploy 2>/dev/null || true
     
     # 2. Remove monitoring stack
     echo -e "${BLUE}Removing monitoring stack...${NC}"
-    cleanup_monitoring || true
+    cleanup_monitoring 2>/dev/null || true
     
-    # 3. Remove operator deployment
-    echo -e "${BLUE}Removing operator deployment...${NC}"
-    make undeploy || true
-    
-    # 4. Force remove stuck KubeVirt and CDI resources
-    echo -e "${BLUE}Force removing stuck KubeVirt/CDI resources...${NC}"
-    
-    # Remove finalizers from KubeVirt resource if it exists
-    kubectl get kubevirt --all-namespaces --no-headers 2>/dev/null | while read namespace name rest; do
-        echo "  Removing finalizers from kubevirt/$name in namespace $namespace"
-        kubectl patch kubevirt $name -n $namespace --type='merge' -p='{"metadata":{"finalizers":[]}}' 2>/dev/null || true
-        kubectl delete kubevirt $name -n $namespace --force --grace-period=0 2>/dev/null || true
-    done
-    
-    # Remove finalizers from CDI resource if it exists
-    kubectl get cdi --all-namespaces --no-headers 2>/dev/null | while read namespace name rest; do
-        echo "  Removing finalizers from cdi/$name in namespace $namespace"
-        kubectl patch cdi $name -n $namespace --type='merge' -p='{"metadata":{"finalizers":[]}}' 2>/dev/null || true
-        kubectl delete cdi $name -n $namespace --force --grace-period=0 2>/dev/null || true
-    done
-    
-    # Wait a moment for resources to be removed
-    sleep 5
-    
-    # 5. Remove CRDs (this will cascade delete all custom resources)
+    # 3. Remove CRDs
     echo -e "${BLUE}Removing Custom Resource Definitions...${NC}"
-    make uninstall || true
+    make uninstall 2>/dev/null || true
     
-    # Force remove KubeVirt/CDI CRDs with finalizer removal
-    echo -e "${BLUE}Force removing KubeVirt/CDI CRDs...${NC}"
-    kubectl get crd --no-headers | grep -E "(kubevirt|cdi)" | awk '{print $1}' | while read crd; do
-        echo "  Force removing CRD: $crd"
-        kubectl patch crd $crd --type='merge' -p='{"metadata":{"finalizers":[]}}' 2>/dev/null || true
-        kubectl delete crd $crd --force --grace-period=0 2>/dev/null || true
-    done
-    
-    # 6. Delete all project namespaces (aggressive approach)
+    # 4. Delete project namespaces
     echo -e "${BLUE}Deleting project namespaces...${NC}"
-    
-    # First, try normal deletion without waiting
     for ns in kubebuilderproject-system kubevirt cdi monitoring docker-registry guacamole; do
         if kubectl get namespace $ns >/dev/null 2>&1; then
-            echo "  Initiating deletion of namespace: $ns"
-            kubectl delete namespace $ns --ignore-not-found=true --timeout=10s >/dev/null 2>&1 &
+            echo "  Deleting namespace: $ns"
+            kubectl delete namespace $ns --ignore-not-found=true --timeout=30s 2>/dev/null || true
         fi
     done
     
-    # Wait briefly for deletion attempts to start
-    sleep 5
-    
-    # 7. Force cleanup any stuck namespaces immediately
-    echo -e "${BLUE}Force cleaning stuck namespaces (aggressive cleanup)...${NC}"
-    
-    # Remove finalizers from all target namespaces
+    # 5. Force cleanup stuck namespaces
+    echo -e "${BLUE}Force cleaning any stuck namespaces...${NC}"
     for ns in kubebuilderproject-system kubevirt cdi monitoring docker-registry guacamole; do
         if kubectl get namespace $ns >/dev/null 2>&1; then
             echo "  Force cleaning namespace: $ns"
-            # Remove finalizers
-            kubectl get namespace $ns -o json 2>/dev/null | jq '.spec.finalizers = []' | kubectl replace --raw "/api/v1/namespaces/$ns/finalize" -f - 2>/dev/null || true
-            
-            # Also try patching directly
             kubectl patch namespace $ns --type='merge' -p='{"spec":{"finalizers":[]}}' 2>/dev/null || true
-            
-            # Force delete any remaining resources in the namespace
-            kubectl delete all --all -n $ns --force --grace-period=0 2>/dev/null || true
         fi
     done
     
-    # Additional aggressive cleanup for stuck resources
-    echo -e "${BLUE}Additional aggressive cleanup...${NC}"
-    
-    # Kill any webhook configurations that might be blocking
-    kubectl delete validatingwebhookconfiguration --all --ignore-not-found=true 2>/dev/null || true
-    kubectl delete mutatingwebhookconfiguration --all --ignore-not-found=true 2>/dev/null || true
-    
-    # Remove any remaining CDI/KubeVirt operators
-    kubectl delete deployment --all-namespaces --selector="app=cdi-operator" --force --grace-period=0 2>/dev/null || true
-    kubectl delete deployment --all-namespaces --selector="kubevirt.io=virt-operator" --force --grace-period=0 2>/dev/null || true
-    
-    # 8. Clean up persistent volumes and storage
-    echo -e "${BLUE}Cleaning up persistent storage...${NC}"
-    
-    # Delete all PVCs aggressively 
-    kubectl get pvc --all-namespaces --no-headers 2>/dev/null | awk '{print $2 " -n " $1}' | xargs -r -I {} kubectl delete pvc {} --force --grace-period=0 2>/dev/null || true
-    
-    # Delete PVs and remove their finalizers if stuck
-    kubectl get pv --no-headers 2>/dev/null | awk '{print $1}' | while read pv; do
-        kubectl patch pv $pv --type='merge' -p='{"metadata":{"finalizers":[]}}' 2>/dev/null || true
-        kubectl delete pv $pv --force --grace-period=0 2>/dev/null || true
-    done
-    
-    # 9. Clean up any remaining pods
-    echo -e "${BLUE}Force removing any remaining pods...${NC}"
-    for ns in kubebuilderproject-system kubevirt cdi monitoring docker-registry guacamole; do
-        kubectl delete pods --all -n $ns --force --grace-period=0 2>/dev/null || true
-    done
-    
-    # 10. Clean up Docker containers and images
+    # 6. Clean up Docker resources
     echo -e "${BLUE}Cleaning up Docker resources...${NC}"
+    docker ps -a | grep -E "(registry|vm-watcher)" | awk '{print $1}' | xargs -r docker rm -f 2>/dev/null || true
+    docker images | grep -E "(vm-watcher|registry)" | awk '{print $3}' | xargs -r docker rmi -f 2>/dev/null || true
     
-    # Stop and remove registry containers  
-    docker ps -a | grep -E "(registry|vm-watcher|controller)" | awk '{print $1}' | xargs -r docker rm -f || true
-    
-    # Remove project-related images
-    docker images | grep -E "(vm-watcher|controller|registry)" | awk '{print $3}' | xargs -r docker rmi -f || true
-    
-    # Clean up dangling images and volumes
-    docker system prune -f || true
-    docker volume prune -f || true
-    
-    # 11. Clean up any remaining cluster resources
-    echo -e "${BLUE}Cleaning up remaining cluster resources...${NC}"
-    
-    # Remove any stuck finalizers on nodes
-    kubectl get nodes -o name | xargs -r -I {} kubectl patch {} --type='merge' -p='{"metadata":{"finalizers":[]}}' || true
-    
-    # 12. Final verification and wait
-    echo -e "${BLUE}Final cleanup verification...${NC}"
-    
-    # Wait a bit longer for everything to settle
-    sleep 10
-    
-    # Force cleanup any remaining stuck namespaces one more time
-    for ns in kubebuilderproject-system kubevirt cdi monitoring docker-registry guacamole; do
-        if kubectl get namespace $ns >/dev/null 2>&1; then
-            echo "  Final cleanup attempt for namespace: $ns"
-            kubectl patch namespace $ns --type='merge' -p='{"spec":{"finalizers":[]}}' 2>/dev/null || true
-        fi
-    done
-    
-    sleep 5
-    
-    # 13. Verify cleanup
-    print_header "CLEANUP VERIFICATION"
-    
-    echo -e "${BLUE}Remaining namespaces:${NC}"
+    # 7. Verification
+    echo -e "${BLUE}Cleanup verification...${NC}"
+    echo "Remaining namespaces:"
     kubectl get namespaces | grep -E "(kubebuilder|kubevirt|cdi|monitoring|docker-registry|guacamole)" || echo "✅ No project namespaces found"
     
-    echo -e "${BLUE}Remaining PVs:${NC}"
-    kubectl get pv 2>/dev/null || echo "No persistent volumes found"
-    
-    echo -e "${BLUE}Remaining project CRDs:${NC}"
-    kubectl get crd | grep -E "(kubevirt|virtualmachine|guacamole)" || echo "No project CRDs found"
-    
-    echo -e "${BLUE}Docker containers:${NC}"
-    docker ps | grep -E "(registry|vm-watcher|controller)" || echo "No project containers running"
-    
-    print_success "Complete cluster cleanup finished!"
-    print_success "Your cluster is now reset to a clean slate"
+    print_success "Cleanup completed!"
     echo -e "${GREEN}You can now run: ${BLUE}./workflow.sh full-setup${GREEN} to deploy everything fresh${NC}"
 }
 
 show_status() {
     print_header "SYSTEM STATUS"
+    
+    echo -e "${BLUE}KubeVirt Status:${NC}"
+    if kubectl get namespace kubevirt >/dev/null 2>&1; then
+        KUBEVIRT_PHASE=$(kubectl get kubevirt.kubevirt.io/kubevirt -n kubevirt -o=jsonpath="{.status.phase}" 2>/dev/null || echo "Unknown")
+        echo "KubeVirt phase: $KUBEVIRT_PHASE"
+        if [ "$KUBEVIRT_PHASE" = "Deployed" ]; then
+            print_success "KubeVirt is deployed and ready"
+        else
+            print_warning "KubeVirt is not fully deployed"
+        fi
+    else
+        print_warning "KubeVirt is not installed"
+    fi
+    echo ""
+    
+    echo -e "${BLUE}CDI Status:${NC}"
+    if kubectl get namespace cdi >/dev/null 2>&1; then
+        CDI_PHASE=$(kubectl get cdi cdi -n cdi -o=jsonpath="{.status.phase}" 2>/dev/null || echo "Unknown")
+        echo "CDI phase: $CDI_PHASE"
+        if [ "$CDI_PHASE" = "Deployed" ]; then
+            print_success "CDI is deployed and ready"
+        else
+            print_warning "CDI is not fully deployed"
+        fi
+    else
+        print_warning "CDI is not installed"
+    fi
+    echo ""
     
     echo -e "${BLUE}Docker Images:${NC}"
     docker images | grep -E "(vm-watcher|controller|custom-ubuntu)" || echo "No operator images found"
@@ -418,6 +427,14 @@ show_status() {
     
     echo -e "${BLUE}Kubernetes Pods:${NC}"
     kubectl get pods --all-namespaces | grep -E "(vm-watcher|controller|monitoring)" || echo "No operator or monitoring pods found"
+    
+    echo -e "${BLUE}Operator Status:${NC}"
+    if kubectl get namespace kubebuilderproject-system >/dev/null 2>&1; then
+        echo "Operator namespace exists"
+        kubectl get pods -n kubebuilderproject-system || echo "No operator pods found"
+    else
+        echo "Operator not deployed"
+    fi
     echo ""
     
     echo -e "${BLUE}Monitoring Status:${NC}"
@@ -427,7 +444,7 @@ show_status() {
         echo ""
         echo "Access URLs:"
         echo "  Prometheus: http://localhost:30090"
-        echo "  Grafana: http://localhost:30091 (admin/admin)"
+        echo "  Grafana: http://localhost:30300 (admin/admin)"
     else
         echo "Monitoring not deployed"
     fi
@@ -469,22 +486,127 @@ force_clean_namespaces() {
     fi
 }
 
+install_kubevirt() {
+    print_header "INSTALLING KUBEVIRT"
+    
+    # Check if KubeVirt is already installed
+    if kubectl get namespace kubevirt >/dev/null 2>&1; then
+        PHASE=$(kubectl get kubevirt.kubevirt.io/kubevirt -n kubevirt -o=jsonpath="{.status.phase}" 2>/dev/null || echo "Unknown")
+        if [ "$PHASE" = "Deployed" ]; then
+            print_success "KubeVirt is already installed and deployed"
+            return 0
+        else
+            echo "KubeVirt exists but status is: $PHASE"
+        fi
+    fi
+    
+    echo "Getting latest KubeVirt version..."
+    KUBEVIRT_VERSION=$(curl -s https://storage.googleapis.com/kubevirt-prow/release/kubevirt/kubevirt/stable.txt)
+    echo "Installing KubeVirt version: $KUBEVIRT_VERSION"
+    
+    if [ -z "$KUBEVIRT_VERSION" ]; then
+        print_error "Failed to get KubeVirt version. Using fallback version v1.5.2"
+        KUBEVIRT_VERSION="v1.5.2"
+    fi
+    
+    echo "Installing KubeVirt operator..."
+    kubectl create -f "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-operator.yaml"
+    
+    echo "Installing KubeVirt custom resources..."
+    kubectl create -f "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-cr.yaml"
+    
+    echo "Waiting for KubeVirt to be deployed..."
+    sleep 180
+    
+    echo "Checking KubeVirt status..."
+    PHASE=$(kubectl get kubevirt.kubevirt.io/kubevirt -n kubevirt -o=jsonpath="{.status.phase}" 2>/dev/null || echo "Unknown")
+    echo "KubeVirt phase: $PHASE"
+    
+    if [ "$PHASE" = "Deployed" ]; then
+        print_success "KubeVirt installation completed successfully"
+    else
+        print_warning "KubeVirt may still be deploying. Check status with: kubectl get kubevirt.kubevirt.io/kubevirt -n kubevirt"
+    fi
+    
+    echo "KubeVirt pods:"
+    kubectl get pods -n kubevirt
+}
+
+install_cdi() {
+    print_header "INSTALLING CDI (CONTAINERIZED DATA IMPORTER)"
+    
+    # Check if CDI is already installed
+    if kubectl get namespace cdi >/dev/null 2>&1; then
+        PHASE=$(kubectl get cdi cdi -n cdi -o=jsonpath="{.status.phase}" 2>/dev/null || echo "Unknown")
+        if [ "$PHASE" = "Deployed" ]; then
+            print_success "CDI is already installed and deployed"
+            return 0
+        else
+            echo "CDI exists but status is: $PHASE"
+        fi
+    fi
+    
+    echo "Getting latest CDI version..."
+    CDI_VERSION=$(basename $(curl -s -w %{redirect_url} https://github.com/kubevirt/containerized-data-importer/releases/latest))
+    echo "Installing CDI version: $CDI_VERSION"
+    
+    if [ -z "$CDI_VERSION" ]; then
+        print_error "Failed to get CDI version. Using fallback version v1.61.3"
+        CDI_VERSION="v1.61.3"
+    fi
+    
+    echo "Installing CDI operator..."
+    kubectl create -f "https://github.com/kubevirt/containerized-data-importer/releases/download/$CDI_VERSION/cdi-operator.yaml"
+    
+    echo "Installing CDI custom resources..."
+    kubectl create -f "https://github.com/kubevirt/containerized-data-importer/releases/download/$CDI_VERSION/cdi-cr.yaml"
+    
+    echo "Waiting for CDI to be deployed..."
+    sleep 30
+    
+    echo "Checking CDI status..."
+    PHASE=$(kubectl get cdi cdi -n cdi -o=jsonpath="{.status.phase}" 2>/dev/null || echo "Unknown")
+    echo "CDI phase: $PHASE"
+    
+    if [ "$PHASE" = "Deployed" ]; then
+        print_success "CDI installation completed successfully"
+    else
+        print_warning "CDI may still be deploying. Check status with: kubectl get cdi cdi -n cdi"
+    fi
+    
+    echo "CDI pods:"
+    kubectl get pods -n cdi
+}
+
 case "${1:-help}" in
+    setup-kubevirt)
+        install_kubevirt
+        ;;
+    setup-cdi)
+        install_cdi
+        ;;        
     setup-registry)
         setup_registry
         ;;
-    build)
+    build-operator)
         build_operator
         ;;
     build-custom-vm)
         build_custom_vm_image
         ;;
-    push)
+    push-operator)
         build_operator
         push_operator
         ;;
+    push-custom-vm)
+        push_custom_vm_image
+        ;;
     deploy)
+        make install  # Install CRDs before deploying operator
         make deploy
+        ;;
+    deploy-stack)
+        deploy_stack
         ;;
     monitoring)
         deploy_monitoring
@@ -502,14 +624,19 @@ case "${1:-help}" in
         show_status
         ;;
     full-setup)
-        print_header "🚀 COMPLETE SETUP WORKFLOW"
+        print_header "COMPLETE SETUP WORKFLOW"
+        install_kubevirt
+        sleep 180
+        install_cdi
+        sleep 30
         setup_registry
-        sleep 5  # Give Registry time to start
+        sleep 30
         build_operator
         push_operator
+        make install  # Install CRDs before deploying operator
         make deploy
         deploy_monitoring
-        print_header "🎉 SETUP COMPLETE!"
+        print_header "SETUP COMPLETE!"
         show_status
         ;;
     help|*)

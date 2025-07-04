@@ -1,6 +1,6 @@
 ---
 # Simple Docker Registry Deployment for Kubernetes
-# Simple and lightweight - just a basic Docker registry with persistent storage
+# Uses PVC defined in monitoring/persistent-storage.yaml
 
 apiVersion: v1
 kind: Namespace
@@ -10,21 +10,7 @@ metadata:
     name: docker-registry
 
 ---
-# Persistent Volume Claim for registry data
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: registry-data-pvc
-  namespace: docker-registry
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 20Gi
-
----
-# Docker Registry Deployment
+# Docker Registry Deployment (with persistent storage)
 apiVersion: apps/v1
 kind: Deployment
 metadata:

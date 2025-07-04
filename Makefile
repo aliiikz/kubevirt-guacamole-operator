@@ -2,7 +2,7 @@
 IMG ?= $(REGISTRY_HOST):$(REGISTRY_PORT)/vm-watcher:latest
 
 # Registry configuration
-REGISTRY_HOST ?= localhost
+REGISTRY_HOST ?= 192.168.1.4
 REGISTRY_PORT ?= 30500
 
 # CONTAINER_TOOL defines the container tool to be used for building images
@@ -18,51 +18,24 @@ SHELL = /usr/bin/env bash -o pipefail
 help: ## Display this help
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
-##@ Development
-
-.PHONY: manifests
-manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects
-	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
-
-.PHONY: generate
-generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations
-	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
-
-.PHONY: fmt
-fmt: ## Run go fmt against code
-	go fmt ./...
-
-.PHONY: vet
-vet: ## Run go vet against code
-	go vet ./...
-
 ##@ Build
-
-.PHONY: build
-build: manifests generate fmt vet ## Build manager binary
-	go build -o bin/manager cmd/main.go
-
-.PHONY: run
-run: manifests generate fmt vet ## Run a controller from your host
-	go run ./cmd/main.go
 
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager
 	$(CONTAINER_TOOL) build -t ${IMG} .
-
-.PHONY: docker-push
-docker-push: ## Push docker image with the manager
-	$(CONTAINER_TOOL) push ${IMG}
 
 .PHONY: build-custom-vm
 build-custom-vm: ## Build custom Ubuntu VM image
 	@echo "Building custom Ubuntu VM image..."
 	cd virtualmachines/custom_image && docker build -t custom-ubuntu-desktop:22.04 .
 
-.PHONY: push
-push: docker-build ## Build and push image to Docker registry
-	@echo "Pushing $(IMG) to Docker registry..."
-	docker push $(IMG)
+.PHONY: push-custom-vm
+push-custom-vm: ## Build and push custom Ubuntu VM image to registry
+	@echo "Building and pushing custom Ubuntu VM image to registry..."
+	cd virtualmachines/custom_image && docker build -t custom-ubuntu-desktop:22.04 .
+	docker tag custom-ubuntu-desktop:22.04 $(REGISTRY_HOST):$(REGISTRY_PORT)/custom-ubuntu-desktop:22.04
+	docker push $(REGISTRY_HOST):$(REGISTRY_PORT)/custom-ubuntu-desktop:22.04
+	@echo "Custom VM image pushed to $(REGISTRY_HOST):$(REGISTRY_PORT)/custom-ubuntu-desktop:22.04"
 
 ##@ Deployment
 
@@ -79,12 +52,21 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster
 	$(KUSTOMIZE) build config/crd | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
 
 .PHONY: deploy
-deploy: manifests kustomize ## Deploy controller to the K8s cluster using registry image
+deploy: install manifests kustomize ## Deploy controller to the K8s cluster using registry image (installs CRDs first)
 	$(KUSTOMIZE) build config/default | kubectl apply -f -
 
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy controller from the K8s cluster
 	$(KUSTOMIZE) build config/default | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
+
+# Internal development targets (used as dependencies)
+.PHONY: manifests
+manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects
+	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+
+.PHONY: generate
+generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations
+	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
 
 ##@ Tools
 
