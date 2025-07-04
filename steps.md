@@ -212,11 +212,27 @@ docker push 192.168.1.4:30500/custom-ubuntu-desktop:22.04
 ### Step 8: Deploy VirtualMachines
 
 ```bash
-# Create VMs using Ubuntu Cloud Images (recommended)
+# Create VMs
 kubectl create -f virtualmachines/dv_ubuntu1.yml
-kubectl create -f virtualmachines/dv_ubuntu2.yml
+sleep 3
 kubectl create -f virtualmachines/vm1_pvc.yml
+
+## VM2
+kubectl create -f virtualmachines/dv_ubuntu2.yml
+sleep 3
 kubectl create -f virtualmachines/vm2_pvc.yml
+
+## IMPORTANT: Delete VM first to trigger Guacamole connection cleanup because the operator needs the VM object with its connection ID annotation to properly delete the Guacamole connection. Delete in this order:
+
+# Delete VMs
+## VM1
+kubectl delete -f virtualmachines/vm1_pvc.yml
+kubectl delete -f virtualmachines/dv_ubuntu1.yml
+
+## VM2  
+kubectl delete -f virtualmachines/vm2_pvc.yml
+kubectl delete -f virtualmachines/dv_ubuntu2.yml
+
 ```
 
 ## Workflow Commands Reference
