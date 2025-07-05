@@ -63,7 +63,7 @@ show_help() {
     echo "  monitoring         Deploy monitoring stack (Prometheus & Grafana)"
     echo "  push-custom-vm     Build and push custom Ubuntu Docker image to Registry"
     echo "  status             Show status of all components"
-    echo "  cleanup            Clean up monitoring stack"
+    echo "  cleanup-monitoring Clean up monitoring stack"
     echo "  cleanup-all        COMPLETE CLEANUP - Reset cluster to clean slate"
     echo "  force-clean-ns     Force clean stuck namespaces"
     echo "  full-setup         Complete setup: KubeVirt + CDI + Registry + Build + Push + Deploy + Stack + Monitoring"
@@ -254,8 +254,8 @@ deploy_monitoring() {
     print_success "Monitoring stack deployed successfully!"
     echo ""
     echo "Access URLs:"
-    echo "  Prometheus: http://localhost:30090"
-    echo "  Grafana: http://localhost:30091 (admin/admin)"
+    echo "  Prometheus: http://192.168.1.4:30090"
+    echo "  Grafana: http://192.168.1.4:30091 (admin/admin)"
 }
 
 cleanup_monitoring() {
@@ -443,8 +443,8 @@ show_status() {
         kubectl get pods -n monitoring || echo "No monitoring pods found"
         echo ""
         echo "Access URLs:"
-        echo "  Prometheus: http://localhost:30090"
-        echo "  Grafana: http://localhost:30300 (admin/admin)"
+        echo "  Prometheus: http://192.168.1.4:30090"
+        echo "  Grafana: http://192.168.1.4:30300 (admin/admin)"
     else
         echo "Monitoring not deployed"
     fi
@@ -611,7 +611,7 @@ case "${1:-help}" in
     monitoring)
         deploy_monitoring
         ;;
-    cleanup)
+    cleanup-monitoring)
         cleanup_monitoring
         ;;
     cleanup-all)

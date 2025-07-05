@@ -1,436 +1,378 @@
 # KubeVirt Guacamole Operator
 
-A Kubernetes operator that manages KubeVirt virtual machines with integrated Apache Guacamole remote desktop access.
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Go Version](https://img.shields.io/badge/go-1.21+-blue.svg)](https://golang.org)
+[![Kubernetes](https://img.shields.io/badge/kubernetes-1.20+-blue.svg)](https://kubernetes.io)
 
-## Description
+A Kubernetes operator that manages KubeVirt virtual machines with integrated Apache Guacamole remote desktop access, complete monitoring stack, and automated deployment workflows.
 
-This operator provides automated management of KubeVirt virtual machines with built-in remote desktop access through Apache Guacamole. It simplifies the deployment and management of virtual machines in Kubernetes clusters while providing web-based remote access capabilities.
+## Overview
 
-## Getting Started
+This operator provides:
 
-### Prerequisites
+- **Automated VM Management**: Create, manage, and delete KubeVirt virtual machines with custom resource definitions
+- **Integrated Remote Access**: Apache Guacamole web-based remote desktop access for VMs
+- **Identity Management**: Keycloak integration for SSO and user authentication
+- **Monitoring Stack**: Prometheus and Grafana for comprehensive monitoring
+- **Container Registry**: Private Docker registry for custom images
+- **Automated Workflows**: Scripts for easy deployment and management
 
-- Kubernetes cluster (tested with K3s)
-- kubectl configured to connect to your cluster
-- Docker installed and configured
-- Go 1.21+ (for building from source)
-- Make utility
-- **KubeVirt and CDI** (Containerized Data Importer) - required for VirtualMachines and DataVolumes
+## Architecture
 
-### Quick Start (Automated)
+//TODO
 
-The easiest way to deploy everything is using the automated workflow script:
+## Table of Contents
+
+- [Quick Start](#quick-start)
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+  - [Automated Setup](#automated-setup)
+  - [Manual Setup](#manual-setup)
+- [Configuration](#configuration)
+- [Usage](#usage)
+- [Components](#components)
+- [Access Points](#access-points)
+- [Monitoring](#monitoring)
+- [Troubleshooting](#troubleshooting)
+- [Development](#development)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Quick Start
+
+Deploy everything with a single command:
 
 ```bash
-# Complete setup - installs KubeVirt/CDI, deploys registry, operator, and monitoring
+# Complete automated deployment
 ./workflow.sh full-setup
 
-# Check status of all components
+# Check deployment status
 ./workflow.sh status
-
-# Clean up everything
-./workflow.sh cleanup-all
 ```
 
-For detailed step-by-step instructions, see **[steps.md](steps.md)**.
+## Prerequisites
 
-Use the provided workflow script for easy setup and deployment:
+### Required Kubernetes Components
 
-```sh
-# Individual commands
-./workflow.sh setup-kubevirt    # Install KubeVirt
-./workflow.sh setup-cdi         # Install CDI (Containerized Data Importer)
-./workflow.sh setup-registry    # Setup Docker registry with persistent storage
-./workflow.sh build-operator    # Build operator image
-./workflow.sh push-operator     # Push operator to registry
-./workflow.sh deploy            # Deploy operator (installs CRDs automatically)
-./workflow.sh monitoring        # Deploy monitoring stack
-./workflow.sh push-custom-vm    # Build and push custom Docker image (optional)
-./workflow.sh status            # Show status of all components
+- **KubeVirt** - Virtual machine management
+- **CDI** (Containerized Data Importer) - For VM disk image handling
+- **Local Path Provisioner** - For persistent storage (default in K3s)
 
-# Show all available commands
-./workflow.sh help
-```
+> **Important**: KubeVirt and CDI are automatically installed by the workflow script. Manual installation instructions are provided in the [Manual Setup](#manual-setup) section.
 
-### Manual Deployment Steps
+## Installation
 
-If you prefer manual control or need to troubleshoot, follow these detailed steps:
+### Automated Setup
 
-#### Step 0: Install KubeVirt and CDI Prerequisites
-
-**IMPORTANT:** KubeVirt and CDI must be installed before creating VirtualMachines or DataVolumes.
+The recommended easy approach is using the workflow script:
 
 ```bash
-# Install KubeVirt and CDI separately
-./workflow.sh setup-kubevirt
-./workflow.sh setup-cdi
+# Clone the repository
+git clone <repository-url>
+cd kubevirt-guacamole-operator
+
+# Complete setup (installs all dependencies)
+./workflow.sh full-setup
+
+# Monitor deployment progress
+watch kubectl get pods --all-namespaces
 ```
 
-**Or install manually:**
+**What this does:**
+
+1. Installs KubeVirt and CDI
+2. Configures insecure registry settings
+3. Deploys container registry with persistent storage
+4. Builds and pushes operator image
+5. Installs CRDs and deploys operator
+6. Deploys Guacamole stack (Guacamole + PostgreSQL + Keycloak)
+7. Sets up monitoring stack (Prometheus + Grafana)
+
+### Manual Setup
+
+For more control or troubleshooting, follow these steps:
+
+#### 1. Install Prerequisites
 
 **Install KubeVirt:**
+
 ```bash
+./workflow.sh setup-kubevirt
+
+# Or manually:
 export VERSION=$(curl -s https://storage.googleapis.com/kubevirt-prow/release/kubevirt/kubevirt/stable.txt)
-echo $VERSION
 kubectl create -f "https://github.com/kubevirt/kubevirt/releases/download/${VERSION}/kubevirt-operator.yaml"
 kubectl create -f "https://github.com/kubevirt/kubevirt/releases/download/${VERSION}/kubevirt-cr.yaml"
-
-# Wait for KubeVirt to be deployed
 kubectl wait --for=condition=Available kubevirt.kubevirt.io/kubevirt -n kubevirt --timeout=300s
-
-# Check status (should show "Deployed")
-kubectl get kubevirt.kubevirt.io/kubevirt -n kubevirt -o=jsonpath="{.status.phase}"
 ```
 
 **Install CDI (Containerized Data Importer):**
+
 ```bash
+./workflow.sh setup-cdi
+
+# Or manually:
 export VERSION=$(basename $(curl -s -w %{redirect_url} https://github.com/kubevirt/containerized-data-importer/releases/latest))
 kubectl create -f "https://github.com/kubevirt/containerized-data-importer/releases/download/$VERSION/cdi-operator.yaml"
 kubectl create -f "https://github.com/kubevirt/containerized-data-importer/releases/download/$VERSION/cdi-cr.yaml"
-
-# Check status (should show "Deployed")
-kubectl get cdi cdi -n cdi
-kubectl get pods -n cdi
 ```
 
-#### Step 1: Configure Docker and Kubernetes for Insecure Registry
+#### 2. Configure Registry (Required for K3s and Docker)
 
-First, configure Docker to allow HTTP connections to your local registry:
+Update IP addresses in the following files to match your node IP:
 
 ```bash
-# Edit Docker daemon configuration
-sudo nano /etc/docker/daemon.json
-```
+# Find your node IP
+NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[0].address}')
+echo "Node IP: $NODE_IP"
 
-Add the following content (replace with your actual node IP):
-
-```json
+# Configure Docker for insecure registry
+sudo tee /etc/docker/daemon.json > /dev/null <<EOF
 {
-  "insecure-registries": ["192.168.1.4:30500"]
+  "insecure-registries": ["$NODE_IP:30500"]
 }
-```
-
-Restart Docker:
-
-```bash
+EOF
 sudo systemctl restart docker
-```
 
-**For Kubernetes (K3s), also configure the registry as insecure:**
-
-```bash
-# Edit K3s registries configuration
+# Configure K3s for insecure registry
 sudo mkdir -p /etc/rancher/k3s
-sudo nano /etc/rancher/k3s/registries.yaml
-```
-
-Add the following content:
-
-```yaml
+sudo tee /etc/rancher/k3s/registries.yaml > /dev/null <<EOF
 mirrors:
-  "192.168.1.4:30500":
+  "$NODE_IP:30500":
     endpoint:
-      - "http://192.168.1.4:30500"
+      - "http://$NODE_IP:30500"
 configs:
-  "192.168.1.4:30500":
+  "$NODE_IP:30500":
     tls:
       insecure_skip_verify: true
-```
-
-Restart K3s:
-
-```bash
+EOF
 sudo systemctl restart k3s
 ```
 
-#### Step 2: Deploy Container Registry
+#### 3. Deploy Components
 
 ```bash
-# Deploy registry with persistent storage
+# Deploy container registry
 ./workflow.sh setup-registry
 
-# Or manually:
-kubectl apply -f repository/registry-storage.yaml
-kubectl apply -f repository/docker-registry.yaml
-
-# Wait for registry to be ready
-kubectl wait --for=condition=ready pod -l app=docker-registry -n docker-registry --timeout=300s
-```
-
-#### Step 3: Build and Push Operator Image
-
-```bash
-# Build operator image
+# Build and push operator
 ./workflow.sh build-operator
-
-# Push to registry
 ./workflow.sh push-operator
 
-# Or manually:
-make docker-build
-make docker-push
-```
+# Deploy operator
+./workflow.sh deploy
 
-#### Step 4: Deploy Operator
+# Deploy Guacamole stack
+./workflow.sh deploy-stack
 
-```bash
-# Install CRDs and deploy operator
-make install
-make deploy
-
-# Verify operator is running
-kubectl get pods -n kubebuilderproject-system
-```
-
-#### Step 5: Deploy Monitoring Stack
-
-```bash
-# Deploy monitoring
+# Deploy monitoring (optional)
 ./workflow.sh monitoring
-
-# Or manually:
-kubectl apply -f monitoring/persistent-storage.yaml
-kubectl apply -f monitoring/01-namespace-rbac.yaml
-kubectl apply -f monitoring/02-prometheus-config.yaml
-kubectl apply -f monitoring/03-prometheus.yaml
-kubectl apply -f monitoring/04-node-exporter.yaml
-kubectl apply -f monitoring/05-grafana-config.yaml
-kubectl apply -f monitoring/06-grafana.yaml
 ```
 
-#### Step 6: Build Custom VM Images (Optional - for Docker containers, not VMs)
+## Configuration
 
-**Note:** The custom Ubuntu desktop image is a Docker container image for running desktop applications, not a VM disk image. DataVolumes should use proper VM images like Ubuntu Cloud Images.
+### Environment Variables
+
+Key configuration options can be set via environment variables:
+
+| Variable         | Default       | Description                                 |
+| ---------------- | ------------- | ------------------------------------------- |
+| `REGISTRY_IP`    | `192.168.1.4` | IP address of the container registry (Host) |
+| `REGISTRY_PORT`  | `30500`       | Port for the container registry             |
+| `GUACAMOLE_PORT` | `30080`       | Port for Guacamole web interface            |
+| `KEYCLOAK_PORT`  | `30081`       | Port for Keycloak admin interface           |
+
+### Updating Registry IP
+
+Your node IP is different from the default IP `192.168.1.4`, update the following files:
+
+1. Find and replace in DataVolume manifests
 
 ```bash
-# Build custom Ubuntu desktop container image (optional)
-./workflow.sh push-custom-vm
-
-# Or manually:
-cd virtualmachines/custom_image
-docker build -t custom-ubuntu-desktop:22.04 .
-docker tag custom-ubuntu-desktop:22.04 192.168.1.4:30500/custom-ubuntu-desktop:22.04
-docker push 192.168.1.4:30500/custom-ubuntu-desktop:22.04
+find virtualmachines/ -name "*.yml" -exec sed -i 's/192.168.1.4/YOUR_NODE_IP/g' {} \;
 ```
 
-#### Step 7: Deploy VirtualMachines
+2. Update Docker configuration
+   Change the IP of the `insecure-registries` in the `/etc/docker/daemon.json` file then, restart Docker service.
+
+3. Update K3S configuration
+   Change the IP of the `mirrors` and `mirrors` in the `/etc/rancher/k3s/registries.yaml` file then, restart K3S service.
+
+### Guacamole Login via Keycloak
+
+Keycloak integration with Guacamole has been configured, but a few manual steps are required to finalize the setup:
+
+#### 1. Create a Realm in Keycloak
+
+- Name the new realm: `GuacamoleRealm`.
+
+#### 2. Configure the Guacamole Client
+
+In the `GuacamoleRealm`, navigate to the **Clients** section and:
+
+- Click **Create** and set the following:
+
+  - **Client ID**: `guacamole`
+  - Enable **Implicit Flow**
+  - Set the following URLs:
+
+    - **Root URL**: `http://192.168.1.4:30080/guacamole/`
+    - **Home URL**: `http://192.168.1.4:30080/guacamole/`
+    - **Web Origins**: `http://192.168.1.4:30080/guacamole/`
+    - **Valid Redirect URIs**: `http://192.168.1.4:30080/guacamole/*`
+
+#### 3. Create a User
+
+- Go to the **Users** section in the realm.
+- Create a new user and assign a password.
+
+  > **Important**: The Keycloak username must match the Guacamole username exactly.
+
+#### 4. Sign In via Guacamole
+
+- Open the Guacamole UI in your browser.
+- Choose the **OpenID Connect** option to be redirected to Keycloak for authentication.
+
+## Usage
+
+### Creating Virtual Machines
+
+1. **Deploy VM with Ubuntu Cloud Image:**
 
 ```bash
-# Create VMs using Ubuntu Cloud Images (recommended)
-kubectl create -f virtualmachines/dv_ubuntu1.yml  # Uses Ubuntu Cloud Image
-kubectl create -f virtualmachines/dv_ubuntu2.yml  # Uses Ubuntu Cloud Image
-kubectl create -f virtualmachines/vm1_pvc.yml
-kubectl create -f virtualmachines/vm2_pvc.yml
+# Create DataVolume (downloads Ubuntu Cloud Image)
+kubectl apply -f virtualmachines/dv_ubuntu1.yml
+
+# Wait for DataVolume to be ready
+kubectl wait --for=condition=Ready dv/ubuntu1-dv --timeout=600s
+
+# Create VirtualMachine
+kubectl apply -f virtualmachines/vm1_pvc.yml
 ```
 
-### Cleanup
+2. **Monitor VM status:**
 
-**Complete cleanup (removes everything):**
-
-```sh
-./workflow.sh cleanup-all
+```bash
+# Check VM status
+kubectl get virtualmachine
+kubectl get pod -l kubevirt.io/created-by
 ```
 
-**Remove monitoring only:**
+3. **Access via Guacamole:**
+   - Navigate to `http://<node-ip>:30080/guacamole/`
+   - Login via Keycloak (admin/admin) or the Quacamole UI itself
+   - VMs will appear automatically in the connection list
 
-```sh
-./workflow.sh cleanup
+### Managing VMs
+
+```bash
+# Start VM
+kubectl patch virtualmachine ubuntu1-vm --type merge -p '{"spec":{"running":true}}'
+
+# Stop VM
+kubectl patch virtualmachine ubuntu1-vm --type merge -p '{"spec":{"running":false}}'
+
+# Delete VM (deletes Guacamole connection automatically)
+kubectl delete virtualmachine ubuntu1-vm
+kubectl delete datavolume ubuntu1-dv
 ```
 
-**Manual cleanup:**
+## Components
 
-```sh
-make undeploy
-make uninstall
-```
+### Core Components
 
-## Workflow Commands Reference
+| Component      | Namespace                   | Purpose                        | Port        |
+| -------------- | --------------------------- | ------------------------------ | ----------- |
+| **Operator**   | `kubebuilderproject-system` | VM lifecycle management        | -           |
+| **Guacamole**  | `guacamole`                 | Web-based remote desktop       | 30080       |
+| **Keycloak**   | `guacamole`                 | Identity and access management | 30081       |
+| **PostgreSQL** | `guacamole`                 | Database for Guacamole         | -           |
+| **Registry**   | `docker-registry`           | Container image storage        | 30500/30501 |
 
-| Command | Description |
-|---------|-------------|
-| `./workflow.sh full-setup` | Complete automated setup (includes KubeVirt/CDI) |
-| `./workflow.sh setup-kubevirt` | Install KubeVirt |
-| `./workflow.sh setup-cdi` | Install CDI (Containerized Data Importer) |
-| `./workflow.sh setup-registry` | Deploy container registry |
-| `./workflow.sh build-operator` | Build operator image |
-| `./workflow.sh push-operator` | Push operator to registry |
-| `./workflow.sh deploy` | Install CRDs and deploy operator |
-| `./workflow.sh monitoring` | Deploy monitoring stack |
-| `./workflow.sh push-custom-vm` | Build and push custom Docker image |
-| `./workflow.sh status` | Show status of all components |
-| `./workflow.sh cleanup` | Clean up monitoring |
-| `./workflow.sh cleanup-all` | Clean up everything (including KubeVirt/CDI) |
+### Monitoring Components
 
-## Makefile Targets Reference
+| Component         | Namespace    | Purpose               | Port  |
+| ----------------- | ------------ | --------------------- | ----- |
+| **Prometheus**    | `monitoring` | Metrics collection    | 30090 |
+| **Grafana**       | `monitoring` | Metrics visualization | 30300 |
+| **Node Exporter** | `monitoring` | Node metrics          | -     |
 
-| Target | Description |
-|--------|-------------|
-| `make docker-build` | Build operator Docker image |
-| `make docker-push` | Push operator image to registry |
-| `make install` | Install CRDs to cluster |
-| `make uninstall` | Remove CRDs from cluster |
-| `make deploy` | Deploy operator to cluster |
-| `make undeploy` | Remove operator from cluster |
-| `make manifests` | Generate manifests |
-| `make generate` | Generate code |
-| `make fmt` | Format Go code |
-| `make vet` | Run go vet |
-| `make test` | Run tests |
-| `make build` | Build operator binary |
-| `make run` | Run operator locally |
+### Default Credentials
 
-## Access Points
-
-After deployment, you can access:
-
-- **Registry UI**: `http://<node-ip>:30501`
-- **Prometheus**: `http://<node-ip>:30090`
-- **Grafana**: `http://<node-ip>:30300` (admin/admin)
+- Keycloak:
+  - username: admin
+  - password: admin
+- Guacamole:
+  - username: guacadmin
+  - password: guacadmin
+- Grafana:
+  - username: admin
+  - passsword: admin
 
 ## Monitoring
 
-Deploy monitoring stack:
+The monitoring stack provides comprehensive observability:
 
-```sh
+### Prometheus Metrics
+
+- **VM Resource Usage**: CPU, memory, disk I/O
+- **Operator Metrics**: Reconciliation times, error rates
+- **Cluster Metrics**: Node resources, pod status
+- **Guacamole Metrics**: Active connections, session duration
+
+### Grafana Dashboards
+
+Access pre-configured dashboards at `http://<node-ip>:30300`:
+
+1. **KubeVirt VMs Dashboard**: VM performance and status
+2. **Operator Dashboard**: Operator health and metrics
+3. **Cluster Overview**: Overall cluster health
+4. **Guacamole Sessions**: Remote access session analytics
+
+### Setting up Monitoring
+
+```bash
+# Deploy monitoring stack
 ./workflow.sh monitoring
-```
 
-This sets up Prometheus and Grafana for monitoring your virtual machines and operator.
-
-**Access URLs:**
-- Prometheus: http://localhost:30090
-- Grafana: http://localhost:30300 (admin/admin)
-
-## Troubleshooting
-
-### Registry Issues
-
-```bash
-# Check registry status
-kubectl get pods -n docker-registry
-kubectl logs -n docker-registry deployment/docker-registry
-
-# Test registry connectivity
-curl http://192.168.1.4:30500/v2/_catalog
-```
-
-### KubeVirt/CDI Issues
-
-```bash
-# Check KubeVirt status
-kubectl get kubevirt.kubevirt.io/kubevirt -n kubevirt
-kubectl get pods -n kubevirt
-
-# Check CDI status
-kubectl get cdi cdi -n cdi
-kubectl get pods -n cdi
-```
-
-**If DataVolume creation fails with "no matches for kind DataVolume":**
-
-This means CDI is not installed. Install it with:
-```bash
-./workflow.sh setup-cdi
-```
-
-**If KubeVirt VMs fail to start:**
-
-Check that KubeVirt is fully deployed:
-```bash
-kubectl get kubevirt.kubevirt.io/kubevirt -n kubevirt -o=jsonpath="{.status.phase}"
-# Should return "Deployed"
-```
-
-### Operator Issues
-
-```bash
-# Check operator status
-kubectl get pods -n kubebuilderproject-system
-kubectl logs -n kubebuilderproject-system deployment/kubebuilderproject-controller-manager
-
-# Check CRDs
-kubectl get crd virtualmachines.kubevirt.setofangdar.polito.it
-```
-
-**If you see ImagePullBackOff errors:**
-
-This usually means Kubernetes is trying to pull from the registry via HTTPS. Fix by:
-
-1. **Configure K3s registries (most important):**
-   ```bash
-   sudo mkdir -p /etc/rancher/k3s
-   sudo tee /etc/rancher/k3s/registries.yaml > /dev/null <<EOF
-   mirrors:
-     "192.168.1.4:30500":
-       endpoint:
-         - "http://192.168.1.4:30500"
-   configs:
-     "192.168.1.4:30500":
-       tls:
-         insecure_skip_verify: true
-   EOF
-   sudo systemctl restart k3s
-   ```
-
-2. **Restart the operator deployment:**
-   ```bash
-   kubectl rollout restart deployment/kubebuilderproject-controller-manager -n kubebuilderproject-system
-   ```
-
-### Monitoring Issues
-
-```bash
-# Check monitoring pods
+# Check monitoring components
 kubectl get pods -n monitoring
 
-# Check Prometheus targets
+# Port forward for local access (optional)
+kubectl port-forward -n monitoring svc/grafana 3000:3000
 kubectl port-forward -n monitoring svc/prometheus 9090:9090
-# Then visit http://localhost:9090/targets
 ```
 
-### Stuck VM Deletion
-
-If a VM gets stuck during deletion (shows "Terminating" status), it's usually due to finalizers:
+### Reset and Cleanup
 
 ```bash
-# Check VM status and finalizers
-kubectl get virtualmachine <vm-name> -o yaml
+# Clean up specific components
+## Remove monitoring only
+./workflow.sh cleanup-monitoring
 
-# Remove finalizers to force deletion (if KubeVirt is not running)
-kubectl patch virtualmachine <vm-name> --type=json -p='[{"op": "remove", "path": "/metadata/finalizers"}]'
+## Remove operator only
+make undeploy
+
+## Remove Guacamole stack
+kubectl delete namespace guacamole
+
+# Force delete namespaces
+./workflow.sh force-clean-ns
+
+# Complete reset (WARNING: removes everything including KubeVirt/CDI)
+./workflow.sh cleanup-all
+
+# Rebuild after cleanup
+./workflow.sh full-setup
 ```
 
-## Project Structure
+## Contributing
 
-- **`steps.md`** - Complete step-by-step setup guide
-- `workflow.sh` - Main automation script for building, deploying, and managing the operator
-- `Makefile` - Build targets for the operator
-- `config/` - Kubernetes manifests and configurations
-- `api/` - Custom Resource Definitions (CRDs)
-- `internal/controller/` - Operator controller logic
-- `repository/` - Docker registry deployment with persistent storage
-- `virtualmachines/` - VM definitions and custom Ubuntu desktop image
-- `monitoring/` - Prometheus and Grafana monitoring setup (optional)
-
-## Important Notes
-
-1. **Node IP Configuration**: Update the registry IP (192.168.1.4) in DataVolume manifests and Docker configuration to match your actual node IP.
-
-2. **Persistent Storage**: The setup uses `local-path` storage class for persistence. Ensure your cluster has this or update the storage class in the YAML files.
-
-3. **Image Registry**: The operator image is pushed to the local registry. Ensure the registry is accessible from all cluster nodes.
-
-4. **CRD Installation**: CRDs must be installed before deploying the operator. The workflow ensures this order.
-
-5. **Custom Images**: Custom VM images are optional but provide a better desktop experience with VNC access.
-
-6. **K3s Insecure Registry**: For K3s clusters, you MUST configure the registry as insecure in `/etc/rancher/k3s/registries.yaml` or pods will fail with ImagePullBackOff errors.
-
-7. **Namespace**: The operator deploys to `kubebuilderproject-system` namespace, not `kubevirt-guacamole-operator-system`.
-
-8. **Prerequisites Warning**: If you run `cleanup-all`, it removes KubeVirt and CDI. You must reinstall them with `./workflow.sh setup-kubevirt` and `./workflow.sh setup-cdi` before creating VMs.
-
-9. **Custom Images**: The custom Ubuntu desktop image is a Docker container image, not a VM disk image. For VMs, use proper disk images like Ubuntu Cloud Images via HTTP source in DataVolumes.
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
 ## License
 
@@ -448,3 +390,9 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
+## Acknowledgments
+
+- [KubeVirt](https://kubevirt.io/) - Kubernetes Virtualization API
+- [Apache Guacamole](https://guacamole.apache.org/) - Clientless remote desktop gateway
+- [Keycloak](https://www.keycloak.org/) - Identity and access management
+- [Kubebuilder](https://book.kubebuilder.io/) - SDK for building Kubernetes APIs

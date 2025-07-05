@@ -365,7 +365,7 @@ kubectl get pods -n monitoring
 
 # Check Prometheus targets
 kubectl port-forward -n monitoring svc/prometheus 9090:9090
-# Then visit http://localhost:9090/targets
+# Then visit http://192.168.1.4:9090/targets
 ```
 
 ## Clean Up

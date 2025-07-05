@@ -131,7 +131,8 @@ spec:
               mountPath: /docker-entrypoint-initdb.d
       volumes:
         - name: postgres-storage
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: guacamole-db-pvc
         - name: init-scripts
           hostPath:
             path: /home/aliii/Github/kubevirt-guacamole-operator/stack/db/init
@@ -219,6 +220,14 @@ spec:
               value: admin
             - name: KEYCLOAK_ADMIN_PASSWORD
               value: admin
+            - name: KC_DB
+              value: postgres
+            - name: KC_DB_URL
+              value: jdbc:postgresql://postgres:5432/keycloak
+            - name: KC_DB_USERNAME
+              value: guacamole
+            - name: KC_DB_PASSWORD
+              value: guacamole
             - name: KC_SPI_EVENTS_LISTENER_SAMPLE_EVENT_LISTENER_ENABLED
               value: "true"
           ports:
@@ -255,3 +264,16 @@ type: Opaque
 data:
   POSTGRES_USER: Z3VhY2Ftb2xl
   POSTGRES_PASSWORD: Z3VhY2Ftb2xl
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: guacamole-db-pvc
+  namespace: guacamole
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+  storageClassName: local-path
