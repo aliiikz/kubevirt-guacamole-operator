@@ -50,6 +50,8 @@ Deploy everything with a single command:
 ./workflow.sh status
 ```
 
+> **💡 Need help?** If you encounter any issues, check the [Troubleshooting Guide](docs/troubleshoot.md) for common problems and solutions.
+
 ## Prerequisites
 
 ### Required Kubernetes Components
@@ -221,17 +223,73 @@ In the `GuacamoleRealm`, navigate to the **Clients** section and:
     - **Web Origins**: `http://192.168.1.4:30080/guacamole/`
     - **Valid Redirect URIs**: `http://192.168.1.4:30080/guacamole/*`
 
-#### 3. Create a User
+#### 3. Create Groups for Access Control
+
+- Go to the **Groups** section in the realm.
+- Create the following groups:
+  - `vm-users` (regular users who can access VMs)
+  - `vm-admins` (administrators who can manage connections)
+
+#### 4. Create a User
 
 - Go to the **Users** section in the realm.
 - Create a new user and assign a password.
+- **Assign the user to a group** (e.g., `vm-users`)
 
-  > **Important**: The Keycloak username must match the Guacamole username exactly.
+  > **Important**: Users must be assigned to either `vm-users` or `vm-admins` group to access VM connections.
 
-#### 4. Sign In via Guacamole
+#### 5. Configure Group Claims in Client
+
+- In the `guacamole` client, go to **Client Scopes**
+- Click on **roles**
+- Click on **Mappers**
+- **Delete the existing `groups` mapper** (click on it and delete it)
+- Click **Add Mapper** and from `By Configuration` add the `Group Membership` mapper and name it `groups`
+- Click **Add Mapper** and from `By Configuration` add the `User Realm Role` mapper and name it `admin-role`
+
+**Configure the new mapper with these settings:**
+
+- **Add to ID token**: ON
+- **Add to access token**: ON
+
+#### 6. Share VM Connections with Groups
+
+**Current Behavior**: VM connections are created for individual users and require manual sharing.
+
+**Manual Sharing Process**:
+
+1. **Login to Guacamole** as admin (guacadmin/guacadmin)
+2. **Go to Settings** → **Connections**
+3. **Select your VM connection** (e.g., ubuntu1-vm)
+4. **Go to Sharing tab**
+5. **Add the groups**: `vm-users` and/or `vm-admins`
+6. **Grant permissions**:
+   - `vm-users`: READ permission (can connect to VMs)
+   - `vm-admins`: READ + UPDATE + DELETE permissions (can manage VMs)
+
+**Automated Sharing (Future Enhancement)**:
+The operator can be enhanced to automatically share new VM connections with predefined groups by:
+
+- Adding group annotations to VirtualMachine resources
+- Automatically calling Guacamole's sharing API when connections are created
+- Supporting connection templates with default group permissions
+
+**Example of future VM annotation**:
+
+```yaml
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: ubuntu1-vm
+  annotations:
+    vm-watcher.setofangdar.polito.it/auto-share-groups: "vm-users:READ,vm-admins:ADMIN"
+```
+
+#### 7. Sign In via Guacamole
 
 - Open the Guacamole UI in your browser.
 - Choose the **OpenID Connect** option to be redirected to Keycloak for authentication.
+- **VM connections will appear** based on your group membership and sharing permissions.
 
 ## Usage
 
@@ -243,9 +301,6 @@ In the `GuacamoleRealm`, navigate to the **Clients** section and:
 # Create DataVolume (downloads Ubuntu Cloud Image)
 kubectl apply -f virtualmachines/dv_ubuntu1.yml
 
-# Wait for DataVolume to be ready
-kubectl wait --for=condition=Ready dv/ubuntu1-dv --timeout=600s
-
 # Create VirtualMachine
 kubectl apply -f virtualmachines/vm1_pvc.yml
 ```
@@ -255,12 +310,18 @@ kubectl apply -f virtualmachines/vm1_pvc.yml
 ```bash
 # Check VM status
 kubectl get virtualmachine
-kubectl get pod -l kubevirt.io/created-by
+kubectl get vmi  # VirtualMachineInstance (running VMs)
+
+# Check VM launcher pods (these are the actual VM pods)
+kubectl get pods -l kubevirt.io/domain
+
+# Get VNC access info
+kubectl get virtualmachine ubuntu1-vm -o yaml | grep -A 5 "guacamole"
 ```
 
 3. **Access via Guacamole:**
    - Navigate to `http://<node-ip>:30080/guacamole/`
-   - Login via Keycloak (admin/admin) or the Quacamole UI itself
+   - Login via Keycloak (admin/admin) or directly with Guacamole credentials
    - VMs will appear automatically in the connection list
 
 ### Managing VMs
@@ -272,10 +333,12 @@ kubectl patch virtualmachine ubuntu1-vm --type merge -p '{"spec":{"running":true
 # Stop VM
 kubectl patch virtualmachine ubuntu1-vm --type merge -p '{"spec":{"running":false}}'
 
-# Delete VM (deletes Guacamole connection automatically)
-kubectl delete virtualmachine ubuntu1-vm
-kubectl delete datavolume ubuntu1-dv
+# Delete VM (IMPORTANT: Delete in correct order to clean up Guacamole connections)
+kubectl delete virtualmachine ubuntu1-vm    # Delete VM first
+kubectl delete datavolume ubuntu1-dv        # Then delete DataVolume
 ```
+
+> **Important**: Always delete the VirtualMachine before deleting the DataVolume. The operator needs the VM object with its connection ID annotation to properly clean up the Guacamole connection.
 
 ## Components
 
@@ -343,28 +406,44 @@ kubectl port-forward -n monitoring svc/grafana 3000:3000
 kubectl port-forward -n monitoring svc/prometheus 9090:9090
 ```
 
-### Reset and Cleanup
+## Troubleshooting
+
+For detailed troubleshooting information, common issues, and solutions, please refer to the [Troubleshooting Guide](docs/troubleshoot.md).
+
+### Quick Diagnostic Commands
 
 ```bash
-# Clean up specific components
-## Remove monitoring only
-./workflow.sh cleanup-monitoring
+# Check overall system status
+./workflow.sh status
 
-## Remove operator only
-make undeploy
+# Check operator logs
+kubectl logs -n kubebuilderproject-system deployment/kubebuilderproject-controller-manager -f
 
-## Remove Guacamole stack
-kubectl delete namespace guacamole
+# Check VM status
+kubectl get vm,vmi,dv,pvc
 
-# Force delete namespaces
-./workflow.sh force-clean-ns
-
-# Complete reset (WARNING: removes everything including KubeVirt/CDI)
-./workflow.sh cleanup-all
-
-# Rebuild after cleanup
-./workflow.sh full-setup
+# Reset everything if needed
+./workflow.sh cleanup-all && ./workflow.sh full-setup
 ```
+
+## Known Limitations
+
+### Connection Sharing
+
+- **Manual Group Assignment**: Auto-created Guacamole connections are only accessible by the admin user who created them
+- **No Automatic Sharing**: Connections must be manually shared with users/groups through the Guacamole UI after creation
+- **Scale Limitations**: Manual sharing becomes burdensome with many VMs and users
+- **Admin Dependency**: Each new VM connection requires administrator intervention for user access
+
+### Workaround
+
+After a VM connection is automatically created:
+
+1. Login to Guacamole as admin
+2. Navigate to Settings → Connections
+3. Select the auto-created connection
+4. Click "Permissions" tab
+5. Manually add users or groups with appropriate permissions
 
 ## Contributing
 

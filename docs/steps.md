@@ -43,6 +43,7 @@ If you prefer manual control or need to troubleshoot, follow these detailed step
 ```
 
 **Install KubeVirt:**
+
 ```bash
 export VERSION=$(curl -s https://storage.googleapis.com/kubevirt-prow/release/kubevirt/kubevirt/stable.txt)
 echo $VERSION
@@ -57,6 +58,7 @@ kubectl get kubevirt.kubevirt.io/kubevirt -n kubevirt -o=jsonpath="{.status.phas
 ```
 
 **Install CDI (Containerized Data Importer):**
+
 ```bash
 export VERSION=$(basename $(curl -s -w %{redirect_url} https://github.com/kubevirt/containerized-data-importer/releases/latest))
 kubectl create -f "https://github.com/kubevirt/containerized-data-importer/releases/download/$VERSION/cdi-operator.yaml"
@@ -213,14 +215,14 @@ docker push 192.168.1.4:30500/custom-ubuntu-desktop:22.04
 
 ```bash
 # Create VMs
-kubectl create -f virtualmachines/dv_ubuntu1.yml
+kubectl apply -f virtualmachines/dv_ubuntu1.yml
 sleep 3
-kubectl create -f virtualmachines/vm1_pvc.yml
+kubectl apply -f virtualmachines/vm1_pvc.yml
 
 ## VM2
-kubectl create -f virtualmachines/dv_ubuntu2.yml
+kubectl apply -f virtualmachines/dv_ubuntu2.yml
 sleep 3
-kubectl create -f virtualmachines/vm2_pvc.yml
+kubectl apply -f virtualmachines/vm2_pvc.yml
 
 ## IMPORTANT: Delete VM first to trigger Guacamole connection cleanup because the operator needs the VM object with its connection ID annotation to properly delete the Guacamole connection. Delete in this order:
 
@@ -229,7 +231,7 @@ kubectl create -f virtualmachines/vm2_pvc.yml
 kubectl delete -f virtualmachines/vm1_pvc.yml
 kubectl delete -f virtualmachines/dv_ubuntu1.yml
 
-## VM2  
+## VM2
 kubectl delete -f virtualmachines/vm2_pvc.yml
 kubectl delete -f virtualmachines/dv_ubuntu2.yml
 
@@ -237,39 +239,39 @@ kubectl delete -f virtualmachines/dv_ubuntu2.yml
 
 ## Workflow Commands Reference
 
-| Command | Description |
-|---------|-------------|
-| `./workflow.sh full-setup` | Complete automated setup (includes KubeVirt/CDI) |
-| `./workflow.sh setup-kubevirt` | Install KubeVirt |
-| `./workflow.sh setup-cdi` | Install CDI (Containerized Data Importer) |
-| `./workflow.sh setup-registry` | Deploy container registry |
-| `./workflow.sh build-operator` | Build operator image |
-| `./workflow.sh push-operator` | Push operator to registry |
-| `./workflow.sh deploy` | Install CRDs and deploy operator |
-| `./workflow.sh deploy-stack` | Deploy Guacamole stack (Guacamole, Postgres, Keycloak) |
-| `./workflow.sh monitoring` | Deploy monitoring stack |
-| `./workflow.sh push-custom-vm` | Build and push custom Docker image |
-| `./workflow.sh status` | Show status of all components |
-| `./workflow.sh cleanup` | Clean up monitoring |
-| `./workflow.sh cleanup-all` | Clean up everything (including KubeVirt/CDI) |
+| Command                        | Description                                            |
+| ------------------------------ | ------------------------------------------------------ |
+| `./workflow.sh full-setup`     | Complete automated setup (includes KubeVirt/CDI)       |
+| `./workflow.sh setup-kubevirt` | Install KubeVirt                                       |
+| `./workflow.sh setup-cdi`      | Install CDI (Containerized Data Importer)              |
+| `./workflow.sh setup-registry` | Deploy container registry                              |
+| `./workflow.sh build-operator` | Build operator image                                   |
+| `./workflow.sh push-operator`  | Push operator to registry                              |
+| `./workflow.sh deploy`         | Install CRDs and deploy operator                       |
+| `./workflow.sh deploy-stack`   | Deploy Guacamole stack (Guacamole, Postgres, Keycloak) |
+| `./workflow.sh monitoring`     | Deploy monitoring stack                                |
+| `./workflow.sh push-custom-vm` | Build and push custom Docker image                     |
+| `./workflow.sh status`         | Show status of all components                          |
+| `./workflow.sh cleanup`        | Clean up monitoring                                    |
+| `./workflow.sh cleanup-all`    | Clean up everything (including KubeVirt/CDI)           |
 
 ## Makefile Targets Reference
 
-| Target | Description |
-|--------|-------------|
-| `make docker-build` | Build operator Docker image |
-| `make docker-push` | Push operator image to registry |
-| `make install` | Install CRDs to cluster |
-| `make uninstall` | Remove CRDs from cluster |
-| `make deploy` | Deploy operator to cluster |
-| `make undeploy` | Remove operator from cluster |
-| `make manifests` | Generate manifests |
-| `make generate` | Generate code |
-| `make fmt` | Format Go code |
-| `make vet` | Run go vet |
-| `make test` | Run tests |
-| `make build` | Build operator binary |
-| `make run` | Run operator locally |
+| Target              | Description                     |
+| ------------------- | ------------------------------- |
+| `make docker-build` | Build operator Docker image     |
+| `make docker-push`  | Push operator image to registry |
+| `make install`      | Install CRDs to cluster         |
+| `make uninstall`    | Remove CRDs from cluster        |
+| `make deploy`       | Deploy operator to cluster      |
+| `make undeploy`     | Remove operator from cluster    |
+| `make manifests`    | Generate manifests              |
+| `make generate`     | Generate code                   |
+| `make fmt`          | Format Go code                  |
+| `make vet`          | Run go vet                      |
+| `make test`         | Run tests                       |
+| `make build`        | Build operator binary           |
+| `make run`          | Run operator locally            |
 
 ## Access Points
 
@@ -309,6 +311,7 @@ kubectl get pods -n cdi
 **If DataVolume creation fails with "no matches for kind DataVolume":**
 
 This means CDI is not installed. Install it with:
+
 ```bash
 ./workflow.sh setup-cdi
 ```
@@ -316,6 +319,7 @@ This means CDI is not installed. Install it with:
 **If KubeVirt VMs fail to start:**
 
 Check that KubeVirt is fully deployed:
+
 ```bash
 kubectl get kubevirt.kubevirt.io/kubevirt -n kubevirt -o=jsonpath="{.status.phase}"
 # Should return "Deployed"
@@ -337,6 +341,7 @@ kubectl get crd virtualmachines.kubevirt.setofangdar.polito.it
 This usually means Kubernetes is trying to pull from the registry via HTTPS. Fix by:
 
 1. **Configure K3s registries (most important):**
+
    ```bash
    sudo mkdir -p /etc/rancher/k3s
    sudo tee /etc/rancher/k3s/registries.yaml > /dev/null <<EOF

@@ -17,14 +17,19 @@ data:
     postgresql-database=guacamole_db
     postgresql-username=guacamole
     postgresql-password=guacamole
-    openid-allow-unverified-users=true
-    openid-username-claim=preferred_username
+
+    # OpenID Connect Configuration
     openid-authorization-endpoint=http://192.168.1.4:30081/realms/GuacamoleRealm/protocol/openid-connect/auth
     openid-token-endpoint=http://192.168.1.4:30081/realms/GuacamoleRealm/protocol/openid-connect/token
     openid-jwks-endpoint=http://192.168.1.4:30081/realms/GuacamoleRealm/protocol/openid-connect/certs
     openid-issuer=http://192.168.1.4:30081/realms/GuacamoleRealm
     openid-client-id=guacamole
     openid-redirect-uri=http://192.168.1.4:30080/guacamole/
+
+    # User Management
+    openid-username-claim=preferred_username
+    openid-allow-unverified-users=true
+    postgresql-auto-create-accounts=true
 ---
 apiVersion: v1
 kind: Service
