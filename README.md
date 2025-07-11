@@ -294,10 +294,10 @@ For more control, you can create VMs manually:
 
 ```bash
 # Create DataVolume (downloads Ubuntu Cloud Image)
-kubectl apply -f virtualmachines/dv_ubuntu1.yml
+kubectl create -f virtualmachines/dv_ubuntu1.yml
 
 # Create VirtualMachine
-kubectl apply -f virtualmachines/vm1_pvc.yml
+kubectl create -f virtualmachines/vm1_pvc.yml
 ```
 
 2. **Monitor VM status:**

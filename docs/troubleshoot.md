@@ -152,7 +152,7 @@ Warning: resource datavolumes/ubuntu1 is missing the kubectl.kubernetes.io/last-
 ```bash
 # Delete and recreate the resource
 kubectl delete datavolume ubuntu1-dv
-kubectl apply -f virtualmachines/dv_ubuntu1.yml
+kubectl create -f virtualmachines/dv_ubuntu1.yml
 
 # Or add the annotation manually
 kubectl annotate datavolume ubuntu1-dv kubectl.kubernetes.io/last-applied-configuration-
@@ -165,7 +165,7 @@ kubectl annotate datavolume ubuntu1-dv kubectl.kubernetes.io/last-applied-config
 **Problem**: `no matches for kind DataVolume`
 
 ```bash
-kubectl apply -f virtualmachines/dv_ubuntu1.yml
+kubectl create -f virtualmachines/dv_ubuntu1.yml
 # error: unable to recognize "dv_ubuntu1.yml": no matches for kind "DataVolume"
 ```
 

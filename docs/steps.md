@@ -215,14 +215,14 @@ docker push 192.168.1.4:30500/custom-ubuntu-desktop:22.04
 
 ```bash
 # Create VMs
-kubectl apply -f virtualmachines/dv_ubuntu1.yml
+kubectl create -f virtualmachines/dv_ubuntu1.yml
 sleep 3
-kubectl apply -f virtualmachines/vm1_pvc.yml
+kubectl create -f virtualmachines/vm1_pvc.yml
 
 ## VM2
-kubectl apply -f virtualmachines/dv_ubuntu2.yml
+kubectl create -f virtualmachines/dv_ubuntu2.yml
 sleep 3
-kubectl apply -f virtualmachines/vm2_pvc.yml
+kubectl create -f virtualmachines/vm2_pvc.yml
 
 ## IMPORTANT: Delete VM first to trigger Guacamole connection cleanup because the operator needs the VM object with its connection ID annotation to properly delete the Guacamole connection. Delete in this order:
 

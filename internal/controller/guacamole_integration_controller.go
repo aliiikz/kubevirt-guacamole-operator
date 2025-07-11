@@ -43,8 +43,6 @@ const (
 	ProcessedAnnotation = "vm-watcher.setofangdar.polito.it/processed"
 	// Annotation to track the last known status
 	LastStatusAnnotation = "vm-watcher.setofangdar.polito.it/last-status"
-	// Annotation to store Guacamole connection ID
-	GuacamoleConnectionIDAnnotation = "vm-watcher.setofangdar.polito.it/guacamole-connection-id"
 	// Default retry delay
 	DefaultRetryDelay = 2 * time.Minute
 	// Maximum retry attempts
@@ -100,13 +98,16 @@ func (r *VirtualMachineReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	var vm kubevirtv1.VirtualMachine
 	if err := r.Get(ctx, req.NamespacedName, &vm); err != nil {
 		if client.IgnoreNotFound(err) == nil {
-			logger.Info("VM deleted", "name", req.Name, "namespace", req.Namespace)
+			logger.Info("VM not found, likely deleted", "name", req.Name, "namespace", req.Namespace)
+			// VM is already deleted, nothing to do
+			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	// Handle deletion
 	if vm.DeletionTimestamp != nil {
+		logger.Info("VM is being deleted, handling cleanup", "name", vm.Name, "namespace", vm.Namespace)
 		return r.handleDeletion(ctx, &vm)
 	}
 
@@ -139,20 +140,19 @@ func (r *VirtualMachineReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 		// Create Guacamole connection
 		// ConnectionID is Guacamole's unique identifier for the created connection
-		connectionID, err := r.createGuacamoleConnection(ctx, &vm)
+		_, err := r.createGuacamoleConnection(ctx, &vm)
 		if err != nil {
 			logger.Error(err, "Failed to create Guacamole connection")
 			// Instead of controlled controller-runtime's exponential backoff, use retry timing for external API failures
 			return ctrl.Result{RequeueAfter: DefaultRetryDelay}, nil
 		}
 
-		// Mark as processed and store connection ID
+		// Mark as processed
 		if vm.Annotations == nil {
 			vm.Annotations = make(map[string]string)
 		}
 		vm.Annotations[ProcessedAnnotation] = "true"
 		vm.Annotations[LastStatusAnnotation] = currentStatus
-		vm.Annotations[GuacamoleConnectionIDAnnotation] = connectionID
 		if err := r.Update(ctx, &vm); err != nil {
 			logger.Error(err, "Failed to update processed annotation")
 			return ctrl.Result{}, err
@@ -160,22 +160,17 @@ func (r *VirtualMachineReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 		logger.Info("Successfully created Guacamole connection",
 			"vm", vm.Name,
-			"namespace", vm.Namespace,
-			"connection_id", connectionID)
+			"namespace", vm.Namespace)
 	} else if statusChanged {
 		logger.Info("VM status changed", "name", vm.Name, "old_status", lastStatus, "new_status", currentStatus)
 
-		connectionID := vm.Annotations[GuacamoleConnectionIDAnnotation]
-
 		// Handle status changes
-		if currentStatus == string(kubevirtv1.VirtualMachineStatusStopped) && connectionID != "" {
-			// VM stopped, optionally disable or delete the connection
-			logger.Info("VM stopped, connection may need to be disabled", "vm", vm.Name, "connection_id", connectionID)
-		} else if currentStatus == string(kubevirtv1.VirtualMachineStatusRunning) && connectionID != "" {
+		if currentStatus == string(kubevirtv1.VirtualMachineStatusStopped) {
+			// VM stopped, connection may need to be disabled
+			logger.Info("VM stopped, connection may need to be disabled", "vm", vm.Name)
+		} else if currentStatus == string(kubevirtv1.VirtualMachineStatusRunning) {
 			// VM restarted, update connection if needed
-			if err := r.updateGuacamoleConnection(ctx, &vm, connectionID); err != nil {
-				logger.Error(err, "Failed to update Guacamole connection")
-			}
+			logger.Info("VM restarted, connection may need to be updated", "vm", vm.Name)
 		}
 
 		// Update last status
@@ -195,19 +190,25 @@ func (r *VirtualMachineReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 func (r *VirtualMachineReconciler) handleDeletion(ctx context.Context, vm *kubevirtv1.VirtualMachine) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	connectionID := vm.Annotations[GuacamoleConnectionIDAnnotation]
-
-	// Delete Guacamole connection
-	if err := r.deleteGuacamoleConnection(ctx, connectionID); err != nil {
-		logger.Error(err, "Failed to delete Guacamole connection")
-		// Continue with cleanup even if Guacamole deletion fails
+	logger.Info("Handling VM deletion", "name", vm.Name, "namespace", vm.Namespace)
+	
+	// Always try to delete by name first (most reliable approach)
+	connectionName := fmt.Sprintf("%s-%s", vm.Namespace, vm.Name)
+	logger.Info("Deleting Guacamole connection by name", "connection_name", connectionName)
+	
+	if err := r.deleteGuacamoleConnectionByName(ctx, connectionName); err != nil {
+		logger.Error(err, "Failed to delete Guacamole connection", "connection_name", connectionName)
+		// Don't fail the deletion - log and continue
 	}
 
 	// Remove our finalizer
-	controllerutil.RemoveFinalizer(vm, VMWatcherFinalizer)
-	if err := r.Update(ctx, vm); err != nil {
-		logger.Error(err, "Failed to remove finalizer")
-		return ctrl.Result{}, err
+	if controllerutil.ContainsFinalizer(vm, VMWatcherFinalizer) {
+		controllerutil.RemoveFinalizer(vm, VMWatcherFinalizer)
+		if err := r.Update(ctx, vm); err != nil {
+			logger.Error(err, "Failed to remove finalizer")
+			return ctrl.Result{}, err
+		}
+		logger.Info("Successfully removed finalizer", "name", vm.Name, "namespace", vm.Namespace)
 	}
 
 	logger.Info("Successfully handled VM deletion", "name", vm.Name, "namespace", vm.Namespace)
@@ -510,71 +511,16 @@ func (r *VirtualMachineReconciler) getVMHostname(ctx context.Context, vm *kubevi
 	return vm.Name, nil
 }
 
-// updateGuacamoleConnection updates an existing connection in Guacamole
-func (r *VirtualMachineReconciler) updateGuacamoleConnection(ctx context.Context, vm *kubevirtv1.VirtualMachine, connectionID string) error {
-	logger := log.FromContext(ctx)
-
-	// Authenticate with Guacamole
-	authResp, err := r.authenticateWithGuacamole(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to authenticate: %w", err)
-	}
-
-	// Build updated connection config
-	connection, err := r.buildGuacamoleConnection(ctx, vm)
-	if err != nil {
-		return fmt.Errorf("failed to build connection config: %w", err)
-	}
-
-	// Update connection via API
-	updateURL := fmt.Sprintf("%s/api/session/data/%s/connections/%s?token=%s",
-		strings.TrimSuffix(r.GuacamoleBaseURL, "/"),
-		authResp.DataSource,
-		connectionID,
-		authResp.AuthToken)
-
-	body, err := json.Marshal(connection)
-	if err != nil {
-		return fmt.Errorf("failed to marshal connection: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "PUT", updateURL, bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-
-	client := r.HTTPClient
-	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Second}
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to update connection: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("connection update failed with status %d", resp.StatusCode)
-	}
-
-	logger.Info("Successfully updated Guacamole connection",
-		"vm", vm.Name,
-		"connection_id", connectionID)
-
-	return nil
-}
-
 // deleteGuacamoleConnection deletes the Guacamole connection when VM is deleted
 func (r *VirtualMachineReconciler) deleteGuacamoleConnection(ctx context.Context, connectionID string) error {
 	logger := log.FromContext(ctx)
 
 	if connectionID == "" {
-		logger.Info("No Guacamole connection ID found, skipping deletion")
+		logger.Info("No Guacamole connection ID provided, skipping deletion")
 		return nil
 	}
+
+	logger.Info("Deleting Guacamole connection", "connection_id", connectionID)
 
 	// Authenticate with Guacamole
 	authResp, err := r.authenticateWithGuacamole(ctx)
@@ -588,6 +534,8 @@ func (r *VirtualMachineReconciler) deleteGuacamoleConnection(ctx context.Context
 		authResp.DataSource,
 		connectionID,
 		authResp.AuthToken)
+
+	logger.Info("Making DELETE request to Guacamole", "url", deleteURL)
 
 	req, err := http.NewRequestWithContext(ctx, "DELETE", deleteURL, nil)
 	if err != nil {
@@ -605,12 +553,85 @@ func (r *VirtualMachineReconciler) deleteGuacamoleConnection(ctx context.Context
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("connection deletion failed with status %d", resp.StatusCode)
+	logger.Info("Received response from Guacamole", "status_code", resp.StatusCode)
+
+	// Handle different status codes
+	switch resp.StatusCode {
+	case http.StatusOK, http.StatusNoContent:
+		logger.Info("Successfully deleted Guacamole connection", "connection_id", connectionID)
+		return nil
+	case http.StatusNotFound:
+		logger.Info("Guacamole connection not found (already deleted?)", "connection_id", connectionID)
+		return nil // Consider this a success since the connection is gone
+	default:
+		// Read response body for error details
+		body := make([]byte, 1024)
+		n, _ := resp.Body.Read(body)
+		errorBody := string(body[:n])
+		logger.Error(fmt.Errorf("connection deletion failed"), "status_code", resp.StatusCode, "response_body", errorBody)
+		return fmt.Errorf("connection deletion failed with status %d: %s", resp.StatusCode, errorBody)
+	}
+}
+
+// deleteGuacamoleConnectionByName deletes a Guacamole connection by searching for it by name
+func (r *VirtualMachineReconciler) deleteGuacamoleConnectionByName(ctx context.Context, connectionName string) error {
+	logger := log.FromContext(ctx)
+
+	// First, authenticate with Guacamole
+	authResp, err := r.authenticateWithGuacamole(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to authenticate: %w", err)
 	}
 
-	logger.Info("Successfully deleted Guacamole connection",
-		"connection_id", connectionID)
+	// Get all connections to find the one with matching name
+	connectionsURL := fmt.Sprintf("%s/api/session/data/%s/connections?token=%s",
+		strings.TrimSuffix(r.GuacamoleBaseURL, "/"),
+		authResp.DataSource,
+		authResp.AuthToken)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", connectionsURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create connections request: %w", err)
+	}
+
+	client := r.HTTPClient
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Second}
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to get connections: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to get connections with status %d", resp.StatusCode)
+	}
+
+	// Parse the response to find connections with matching name
+	var connections map[string]GuacamoleConnectionResponse
+	if err := json.NewDecoder(resp.Body).Decode(&connections); err != nil {
+		return fmt.Errorf("failed to decode connections response: %w", err)
+	}
+
+	// Find and delete connections with matching name
+	var deletedAny bool
+	for identifier, connection := range connections {
+		if connection.Name == connectionName {
+			logger.Info("Found matching connection to delete", "connection_id", identifier, "connection_name", connectionName)
+			if err := r.deleteGuacamoleConnection(ctx, identifier); err != nil {
+				logger.Error(err, "Failed to delete connection", "connection_id", identifier)
+			} else {
+				deletedAny = true
+				logger.Info("Successfully deleted connection", "connection_id", identifier)
+			}
+		}
+	}
+
+	if !deletedAny {
+		logger.Info("No matching connections found to delete", "connection_name", connectionName)
+	}
 
 	return nil
 }
@@ -629,12 +650,16 @@ func (r *VirtualMachineReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			newVM := e.ObjectNew.(*kubevirtv1.VirtualMachine)
 
 			// Process if the processed annotation is missing, status changed, or generation changed
+			// Also process if deletion timestamp is set
 			return oldVM.Annotations[ProcessedAnnotation] != newVM.Annotations[ProcessedAnnotation] ||
 				oldVM.Status.PrintableStatus != newVM.Status.PrintableStatus ||
-				oldVM.Generation != newVM.Generation
+				oldVM.Generation != newVM.Generation ||
+				(oldVM.DeletionTimestamp == nil && newVM.DeletionTimestamp != nil)
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {
-			// Always process delete events
+			// Always process delete events - this is critical for cleanup
+			vm := e.Object.(*kubevirtv1.VirtualMachine)
+			log.Log.Info("VM deletion event received", "name", vm.Name, "namespace", vm.Namespace)
 			return true
 		},
 	}
