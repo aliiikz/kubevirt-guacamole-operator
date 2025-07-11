@@ -52,6 +52,9 @@ show_help() {
     echo "  deploy-stack       Deploy Guacamole stack (Guacamole, Postgres, Keycloak)"
     echo "  monitoring         Deploy monitoring stack (Prometheus & Grafana)"
     echo "  push-custom-vm     Build and push custom Ubuntu Docker image to Registry"
+    echo "  create-vm          Create VMs and configure them with Ansible"
+    echo "  configure-vms      Configure deployed VMs using Ansible"
+    echo "  list-vms           List available VMs and their IPs"
     echo "  status             Show status of all components"
     echo "  cleanup-monitoring Clean up monitoring stack"
     echo "  cleanup-all        COMPLETE CLEANUP - Reset cluster to clean slate"
@@ -63,6 +66,7 @@ show_help() {
     echo "  $0 detect-ip          # Show detected IP and endpoints"
     echo "  $0 update-configs     # Update configs with current IP"
     echo "  $0 full-setup         # Complete setup from scratch"
+    echo "  $0 create-vm          # Create VMs and configure them"
     echo "  $0 build-operator     # Just build the operator image"
     echo "  $0 push-operator      # Build and push operator to registry"
     echo "  $0 cleanup-all        # Complete cleanup - removes everything!"
@@ -653,6 +657,106 @@ show_endpoints() {
     echo ""
 }
 
+create_vm() {
+    print_header "CREATING VMs"
+    
+    # List of VM files to create
+    local vm_files=(
+        "virtualmachines/dv_ubuntu1.yml"
+        "virtualmachines/vm1_pvc.yml"
+        "virtualmachines/dv_ubuntu2.yml"
+        "virtualmachines/vm2_pvc.yml"
+    )
+    
+    # Create VMs
+    echo "Creating VMs..."
+    for vm_file in "${vm_files[@]}"; do
+        if [[ -f "$vm_file" ]]; then
+            echo "  Creating: $vm_file"
+            kubectl create -f "$vm_file"
+        else
+            print_warning "VM file not found: $vm_file"
+        fi
+    done
+    
+    echo ""
+    echo "Waiting for VMs to be ready..."
+    
+    # Wait for VMs to get IP addresses
+    local max_wait=300
+    local elapsed=0
+    local expected_vms=2
+    
+    while [ $elapsed -lt $max_wait ]; do
+        local vm_count=$(kubectl get vmi -o jsonpath='{.items[*].status.interfaces[0].ipAddress}' | wc -w)
+        local running_count=$(kubectl get vmi -o jsonpath='{.items[*].status.phase}' | grep -o "Running" | wc -l)
+        
+        if [ "$vm_count" -ge "$expected_vms" ] && [ "$running_count" -ge "$expected_vms" ]; then
+            print_success "Found $vm_count VMs with IP addresses (all running)"
+            break
+        fi
+        
+        echo "Waiting for VMs... ($elapsed/${max_wait}s) - Found $running_count running VMs, $vm_count with IPs"
+        sleep 15
+        elapsed=$((elapsed + 15))
+    done
+    
+    if [ $elapsed -ge $max_wait ]; then
+        print_warning "Timeout waiting for all VMs to be ready"
+        echo "Current VM status:"
+        kubectl get vmi
+        echo ""
+        echo "Proceeding with available VMs..."
+    fi
+    
+    # Show VM status
+    echo ""
+    echo "VM Status:"
+    kubectl get vmi
+    
+    echo ""
+    echo "VM IPs:"
+    VM_IPS=$(kubectl get vmi -o jsonpath='{.items[*].status.interfaces[0].ipAddress}' | tr ' ' '\n' | grep -v '^$')
+    if [ -n "$VM_IPS" ]; then
+        for ip in $VM_IPS; do
+            VM_NAME=$(kubectl get vmi -o jsonpath='{.items[?(@.status.interfaces[0].ipAddress=="'$ip'")].metadata.name}')
+            echo "  $ip - $VM_NAME"
+        done
+    else
+        print_error "No VMs found with IP addresses"
+        return 1
+    fi
+    
+    print_success "VMs created successfully!"
+    
+    # Now configure VMs with Ansible
+    echo ""
+    print_header "CONFIGURING VMs WITH ANSIBLE"
+    echo "Step 1: Populating inventory with VM IPs..."
+    if [[ -x "scripts/populate-inventory.sh" ]]; then
+        ./scripts/populate-inventory.sh
+    else
+        print_error "Populate inventory script not found or not executable"
+        exit 1
+    fi
+    
+    sleep 15
+    
+    echo ""
+    echo "Step 2: Running Ansible playbook..."
+    if command -v ansible-playbook >/dev/null 2>&1; then
+        echo "Running Ansible playbook from: $(pwd)/ansible"
+        echo "Using inventory: inventory"
+        echo ""
+        (cd ansible && ansible-playbook configure-vms.yml)
+    else
+        print_error "ansible-playbook not found. Install with: pip3 install ansible"
+        exit 1
+    fi
+    
+    print_success "VM creation and configuration completed!"
+}
+
 case "${1:-help}" in
     setup-kubevirt)
         install_kubevirt
@@ -724,6 +828,45 @@ case "${1:-help}" in
     update-configs)
         substitute_env_vars
         update_system_configs
+        ;;
+    create-vm)
+        create_vm
+        ;;
+    configure-vms)
+        print_header "CONFIGURING VMs WITH ANSIBLE"
+        echo "Step 1: Populating inventory with VM IPs..."
+        if [[ -x "scripts/populate-inventory.sh" ]]; then
+            ./scripts/populate-inventory.sh
+        else
+            print_error "Populate inventory script not found or not executable"
+            exit 1
+        fi
+        
+        echo ""
+        echo "Step 2: Running Ansible playbook..."
+        if command -v ansible-playbook >/dev/null 2>&1; then
+            echo "Running Ansible playbook from: $(pwd)/ansible"
+            echo "Using inventory: inventory"
+            echo ""
+            (cd ansible && ansible-playbook configure-vms.yml)
+        else
+            print_error "ansible-playbook not found. Install with: pip3 install ansible"
+            exit 1
+        fi
+        ;;
+    list-vms)
+        print_header "LISTING AVAILABLE VMs"
+        echo "Getting VM IPs from kubectl..."
+        VM_IPS=$(kubectl get vmi -o jsonpath='{.items[*].status.interfaces[0].ipAddress}' | tr ' ' '\n' | grep -v '^$')
+        if [ -n "$VM_IPS" ]; then
+            echo "Running VMs:"
+            for ip in $VM_IPS; do
+                VM_NAME=$(kubectl get vmi -o jsonpath='{.items[?(@.status.interfaces[0].ipAddress=="'$ip'")].metadata.name}')
+                echo "  $ip - $VM_NAME"
+            done
+        else
+            echo "No VMs found with IP addresses"
+        fi
         ;;
     help|*)
         show_help

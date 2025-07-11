@@ -52,3 +52,9 @@ bin/*
 Dockerfile.cross
 
 stack/virtctl
+
+
+# ----------------------
+# Backup Directory
+# ----------------------
+.backup/

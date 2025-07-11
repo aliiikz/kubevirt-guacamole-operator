@@ -1,0 +1,62 @@
+---
+# Simple KubeVirt VM Configuration Playbook
+- name: Configure KubeVirt VMs
+  hosts: vms
+  gather_facts: yes
+  become: yes
+
+  tasks:
+    - name: Wait for SSH to become available
+      wait_for_connection:
+        delay: 10
+        timeout: 300
+
+    - name: Show VM information
+      debug:
+        msg: "Configuring VM: {{ inventory_hostname }}"
+
+    - name: Update system packages
+      apt:
+        update_cache: yes
+        upgrade: dist
+      when: ansible_os_family == "Debian"
+
+    - name: Install useful packages
+      apt:
+        name:
+          - curl
+          - wget
+          - git
+          - vim
+          - htop
+          - net-tools
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Copy install_services.sh to VM
+      copy:
+        src: ../scripts/install_services.sh
+        dest: /home/ubuntu/install_services.sh
+        owner: ubuntu
+        group: ubuntu
+        mode: "0755"
+
+    - name: Run install_services.sh
+      shell: |
+        cd /home/ubuntu
+        ./install_services.sh
+      register: install_result
+      become: yes
+
+    - name: Show install_services.sh output
+      debug:
+        var: install_result.stdout_lines
+      when: install_result is defined
+
+    - name: Create completion marker
+      file:
+        path: /home/ubuntu/.vm-configured
+        state: touch
+        owner: ubuntu
+        group: ubuntu
+        mode: "0644"

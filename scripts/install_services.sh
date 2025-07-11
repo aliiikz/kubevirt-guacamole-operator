@@ -15,12 +15,14 @@ sudo apt install -y xfce4 xfce4-goodies xorgxrdp dbus-x11
 
 echo "### Installing XRDP..."
 sudo apt install -y xrdp
-sudo systemctl enable --now xrdp
+sudo systemctl enable xrdp
 sudo systemctl status xrdp
 
 echo "### Configuring XRDP session..."
 echo "startxfce4" | sudo tee -a /etc/skel/.xsession
-echo "startxfce4" > ~/.xsession
+echo "startxfce4" | sudo tee /home/ubuntu/.xsession
+sudo chown ubuntu:ubuntu /home/ubuntu/.xsession
+sudo chmod 644 /home/ubuntu/.xsession
 
 echo "### Editing /etc/xrdp/startwm.sh..."
 sudo cp /etc/xrdp/startwm.sh /etc/xrdp/startwm.sh.backup
@@ -39,24 +41,28 @@ sudo systemctl restart xrdp-sesman
 echo "### Installing TigerVNC..."
 sudo apt install -y tigervnc-standalone-server tigervnc-xorg-extension tigervnc-viewer
 
-echo "### Setting up VNC for user: $USER"
+echo "### Setting up VNC for user: ubuntu"
 echo "### Setting VNC password to 'vm2test' (no prompts)..."
-mkdir -p ~/.vnc
-echo "vm2test" | vncpasswd -f > ~/.vnc/passwd
-chmod 600 ~/.vnc/passwd
+sudo mkdir -p /home/ubuntu/.vnc
+echo "vm2test" | sudo -u ubuntu vncpasswd -f > /tmp/vncpasswd
+sudo mv /tmp/vncpasswd /home/ubuntu/.vnc/passwd
+sudo chown ubuntu:ubuntu /home/ubuntu/.vnc/passwd
+sudo chmod 600 /home/ubuntu/.vnc/passwd
 
 echo "### Creating VNC startup script..."
-mkdir -p ~/.vnc
-echo "#!/bin/sh" > ~/.vnc/xstartup
-echo "unset SESSION_MANAGER" >> ~/.vnc/xstartup
-echo "unset DBUS_SESSION_BUS_ADDRESS" >> ~/.vnc/xstartup
-echo "exec startxfce4" >> ~/.vnc/xstartup
-chmod +x ~/.vnc/xstartup
+sudo mkdir -p /home/ubuntu/.vnc
+echo "#!/bin/sh" | sudo tee /home/ubuntu/.vnc/xstartup
+echo "unset SESSION_MANAGER" | sudo tee -a /home/ubuntu/.vnc/xstartup
+echo "unset DBUS_SESSION_BUS_ADDRESS" | sudo tee -a /home/ubuntu/.vnc/xstartup
+echo "exec startxfce4" | sudo tee -a /home/ubuntu/.vnc/xstartup
+sudo chown -R ubuntu:ubuntu /home/ubuntu/.vnc
+sudo chmod +x /home/ubuntu/.vnc/xstartup
+sudo chmod 700 /home/ubuntu/.vnc
 
 echo "### Starting VNC server on :0..."
-vncserver -kill :0 || true
+sudo -u ubuntu vncserver -kill :0 || true
 sleep 2
-vncserver :0 -geometry 1920x1080 -depth 24 -localhost no
+sudo -u ubuntu vncserver :0 -geometry 1920x1080 -depth 24 -localhost no
 
 echo "### Removing Snap-based Firefox..."
 sudo snap remove firefox || true

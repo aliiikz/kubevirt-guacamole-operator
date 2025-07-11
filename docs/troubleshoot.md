@@ -498,3 +498,95 @@ For more information, consult:
 - [Kubernetes Troubleshooting Guide](https://kubernetes.io/docs/tasks/debug-application-cluster/)
 
 If you encounter issues not covered here, please check the project's GitHub issues or create a new issue with detailed information about your problem.
+
+## Up Interface
+
+sudo ip link set enp1s0 up
+sudo dhclient enp1s0
+ip addr show enp1s0
+
+## Force Delete VM Resources Without YAML
+
+**Problem**: You need to delete a VM, PVC, and DataVolume but lost the original YAML file
+
+**Solution**: Use kubectl delete commands with resource names
+
+```bash
+# First, list all VMs to see what needs to be deleted
+kubectl get vm,vmi,dv,pvc
+
+# Method 1: Delete by resource name (recommended)
+# Replace 'vm-name' with your actual VM name
+kubectl delete vm vm-name
+kubectl delete vmi vm-name  # If VM instance is still running
+kubectl delete dv datavolume-name
+kubectl delete pvc pvc-name
+
+# Method 2: Force delete stuck resources
+# If resources are stuck in terminating state, patch finalizers
+kubectl patch vm vm-name -p '{"metadata":{"finalizers":[]}}' --type=merge
+kubectl patch vmi vm-name -p '{"metadata":{"finalizers":[]}}' --type=merge
+kubectl patch dv datavolume-name -p '{"metadata":{"finalizers":[]}}' --type=merge
+kubectl patch pvc pvc-name -p '{"metadata":{"finalizers":[]}}' --type=merge
+
+# Then force delete with grace period 0
+kubectl delete vm vm-name --force --grace-period=0
+kubectl delete vmi vm-name --force --grace-period=0
+kubectl delete dv datavolume-name --force --grace-period=0
+kubectl delete pvc pvc-name --force --grace-period=0
+
+# Method 3: Delete all VMs in a namespace (use with caution!)
+kubectl delete vm --all -n default
+kubectl delete vmi --all -n default
+kubectl delete dv --all -n default
+kubectl delete pvc --all -n default
+
+# Method 4: Interactive deletion with confirmation
+kubectl get vm -o name | xargs -I {} kubectl delete {}
+
+# Check if resources are completely removed
+kubectl get vm,vmi,dv,pvc
+```
+
+**Example for ubuntu1-vm-cloudinit:**
+
+```bash
+# Check current resources
+kubectl get vm,vmi,dv,pvc
+
+# Delete the specific VM and related resources
+kubectl delete vm ubuntu1-vm-cloudinit
+kubectl delete vmi ubuntu1-vm-cloudinit
+kubectl delete dv ubuntu1
+kubectl delete pvc ubuntu1
+
+# If stuck, force delete
+kubectl patch vm ubuntu1-vm-cloudinit -p '{"metadata":{"finalizers":[]}}' --type=merge
+kubectl delete vm ubuntu1-vm-cloudinit --force --grace-period=0
+kubectl patch dv ubuntu1 -p '{"metadata":{"finalizers":[]}}' --type=merge
+kubectl delete dv ubuntu1 --force --grace-period=0
+```
+
+**Additional cleanup for persistent storage:**
+
+```bash
+# If using local storage, clean up directories
+sudo rm -rf /var/lib/rancher/k3s/storage/pvc-*
+
+# Check for any remaining pods
+kubectl get pods | grep virt-launcher
+kubectl delete pod --force --grace-period=0 pod-name
+```
+
+## Ansible Commands
+
+```bash
+python3 ansible/dynamic_inventory.py --list
+```
+
+```bash
+pip3 install --user ansible
+sudo apt update && sudo apt install -y ansible
+```
+
+kubectl delete vm,vmi,dv,pvc --all

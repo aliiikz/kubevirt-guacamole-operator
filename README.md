@@ -18,7 +18,7 @@ This operator provides:
 
 ## Architecture
 
-![alt text](./docs/Architecture.png)
+![alt text](./docs/images/architecture.png)
 
 ## Table of Contents
 
@@ -50,6 +50,9 @@ cd kubevirt-guacamole-operator
 # Complete automated deployment (automatically detects IP)
 ./workflow.sh full-setup
 
+# Create and configure VMs
+./workflow.sh create-vm
+
 # Check deployment status
 ./workflow.sh status
 
@@ -65,6 +68,7 @@ cd kubevirt-guacamole-operator
 - ✅ Private container registry
 - ✅ Prometheus & Grafana monitoring
 - ✅ Automatic IP detection and configuration
+- ✅ Automated VM creation and configuration with Ansible
 
 ## Prerequisites
 
@@ -73,6 +77,14 @@ cd kubevirt-guacamole-operator
 - **KubeVirt** - Virtual machine management
 - **CDI** (Containerized Data Importer) - For VM disk image handling
 - **Local Path Provisioner** - For persistent storage (default in K3s)
+
+### Optional Components (for VM Configuration)
+
+- **Ansible** - For automated VM configuration (installed automatically if needed)
+- **jq** - For JSON processing in scripts
+- **SSH key pair** - For VM access (default: `~/.ssh/id_rsa`)
+
+> **Note**: The workflow script will automatically install Ansible if it's not present when using `create-vm` or `configure-vms` commands.
 
 > **Important**: KubeVirt and CDI are automatically installed by the workflow script. Manual installation instructions are provided in the [Manual Setup](#manual-setup) section.
 
@@ -211,6 +223,73 @@ The following environment variables are automatically detected and can be overri
 
 ### Creating Virtual Machines
 
+#### Automated VM Creation and Configuration
+
+The easiest way to create and configure VMs is using the automated workflow:
+
+```bash
+# Create VMs and automatically configure them with Ansible
+./workflow.sh create-vm
+
+# List available VMs
+./workflow.sh list-vms
+
+# Configure existing VMs
+./workflow.sh configure-vms
+```
+
+**What `create-vm` does:**
+
+1. ✅ Creates VMs from YAML files (`dv_ubuntu1.yml`, `vm1_pvc.yml`, `dv_ubuntu2.yml`, `vm2_pvc.yml`)
+2. ✅ Waits for VMs to be ready and get IP addresses
+3. ✅ Automatically discovers VM IPs and populates Ansible inventory
+4. ✅ Runs Ansible playbook to configure VMs with:
+   - System package updates
+   - Essential tools (curl, wget, git, vim, htop, net-tools)
+   - Executes `install_services.sh` if present in `/home/ubuntu/`
+   - Creates completion marker at `/home/ubuntu/.vm-configured`
+
+#### VM Configuration with Ansible
+
+The project includes a simplified Ansible setup for post-deployment VM configuration:
+
+**Components:**
+
+- **`scripts/populate-inventory.sh`**: Discovers VM IPs and populates inventory
+- **`ansible/inventory`**: Static inventory file with VM IPs and SSH settings
+- **`ansible/configure-vms.yml`**: Playbook for VM configuration
+- **`ansible/ansible.cfg`**: Ansible configuration for seamless VM access
+
+**Manual usage:**
+
+```bash
+# Populate inventory with current VM IPs
+./scripts/populate-inventory.sh
+
+# Run Ansible playbook
+cd ansible && ansible-playbook configure-vms.yml
+
+# Or from project root
+./workflow.sh configure-vms
+```
+
+**Ansible inventory example:**
+
+```ini
+[vms]
+10.42.0.50
+10.42.0.51
+
+[vms:vars]
+ansible_user=ubuntu
+ansible_ssh_private_key_file=~/.ssh/id_rsa
+ansible_ssh_common_args=-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+```
+
+#### Manual VM Creation
+
+For more control, you can create VMs manually:
+
 1. **Deploy VM with Ubuntu Cloud Image:**
 
 ```bash
@@ -240,9 +319,81 @@ kubectl get virtualmachine ubuntu1-vm -o yaml | grep -A 5 "guacamole"
    - Login via Keycloak (admin/admin) or directly with Guacamole credentials
    - VMs will appear automatically in the connection list
 
+### Custom VM Scripts
+
+You can include custom installation scripts that will be automatically executed:
+
+1. **Create your script**: Place `install_services.sh` in the VM's `/home/ubuntu/` directory
+2. **Make it executable**: The Ansible playbook will automatically make it executable
+3. **Automatic execution**: The script will be run during VM configuration
+
+Example `install_services.sh`:
+
+```bash
+#!/bin/bash
+# Custom VM setup script
+
+# Install Docker
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker ubuntu
+
+# Install additional tools
+sudo apt update
+sudo apt install -y htop tree jq
+
+# Configure services
+sudo systemctl enable docker
+sudo systemctl start docker
+
+echo "Custom VM setup completed!"
+```
+
 ### Supported Protocols
 
 The operator supports **RDP** and **VNC** protocols for remote access to VMs.
+
+### Workflow Commands
+
+The `workflow.sh` script provides comprehensive automation for the entire lifecycle:
+
+#### Setup Commands
+
+```bash
+./workflow.sh detect-ip          # Show detected IP addresses and endpoints
+./workflow.sh update-configs     # Update configuration files with current IP
+./workflow.sh setup-kubevirt     # Setup KubeVirt (required for VMs)
+./workflow.sh setup-cdi          # Setup CDI (required for VMs)
+./workflow.sh setup-registry     # Setup Docker Registry
+./workflow.sh full-setup         # Complete automated setup
+```
+
+#### Build and Deploy Commands
+
+```bash
+./workflow.sh build-operator     # Build operator image
+./workflow.sh push-operator      # Build and push operator to registry
+./workflow.sh deploy             # Deploy operator (installs CRDs)
+./workflow.sh deploy-stack       # Deploy Guacamole stack
+./workflow.sh monitoring         # Deploy monitoring stack
+./workflow.sh push-custom-vm     # Build and push custom Ubuntu image
+```
+
+#### VM Management Commands
+
+```bash
+./workflow.sh create-vm          # Create VMs and configure them with Ansible
+./workflow.sh configure-vms      # Configure existing VMs using Ansible
+./workflow.sh list-vms           # List available VMs and their IPs
+```
+
+#### Maintenance Commands
+
+```bash
+./workflow.sh status             # Show status of all components
+./workflow.sh cleanup-monitoring # Clean up monitoring stack
+./workflow.sh cleanup-all        # COMPLETE CLEANUP - Reset cluster
+./workflow.sh force-clean-ns     # Force clean stuck namespaces
+```
 
 ### Managing VMs
 
@@ -347,9 +498,60 @@ kubectl logs -n kubebuilderproject-system deployment/kubebuilderproject-controll
 # Check VM status
 kubectl get vm,vmi,dv,pvc
 
+# List VMs and their IPs
+./workflow.sh list-vms
+
 # Reset everything if needed
 ./workflow.sh cleanup-all && ./workflow.sh full-setup
 ```
+
+### VM and Ansible Troubleshooting
+
+```bash
+# Check VM connectivity
+kubectl get vmi -o wide
+
+# Test VM SSH connectivity
+ssh ubuntu@<vm-ip>
+
+# Check Ansible inventory
+cat ansible/inventory
+
+# Run Ansible in check mode (dry run)
+cd ansible && ansible-playbook configure-vms.yml --check
+
+# Run Ansible with verbose output
+cd ansible && ansible-playbook configure-vms.yml -v
+
+# Manually populate inventory and test
+./scripts/populate-inventory.sh
+cd ansible && ansible all -m ping
+
+# Check VM boot and SSH readiness
+kubectl get vmi <vm-name> -o jsonpath='{.status.phase}'
+kubectl get vmi <vm-name> -o jsonpath='{.status.interfaces[0].ipAddress}'
+```
+
+### Common Issues
+
+**VMs not getting IP addresses:**
+
+- Check if VMs are in "Running" phase: `kubectl get vmi`
+- Verify cloud-init is working: `kubectl logs <vm-launcher-pod>`
+- Check network configuration in VM YAML files
+
+**Ansible connection failures:**
+
+- Ensure SSH key exists: `ls -la ~/.ssh/id_rsa*`
+- Check VM SSH service: `ssh ubuntu@<vm-ip>`
+- Verify inventory file: `cat ansible/inventory`
+- VMs may take time to boot - wait 2-3 minutes after VM creation
+
+**VM creation fails:**
+
+- Check KubeVirt and CDI status: `./workflow.sh status`
+- Verify sufficient resources: `kubectl describe nodes`
+- Check DataVolume import: `kubectl get dv -o wide`
 
 ## Known Limitations
 
