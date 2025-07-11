@@ -24,6 +24,13 @@ help: ## Display this help
 docker-build: ## Build docker image with the manager
 	$(CONTAINER_TOOL) build -t ${IMG} .
 
+.PHONY: docker-push
+docker-push: ## Push docker image to the registry
+	$(CONTAINER_TOOL) push ${IMG}
+
+.PHONY: docker-build-push
+docker-build-push: docker-build docker-push ## Build and push docker image
+
 .PHONY: build-custom-vm
 build-custom-vm: ## Build custom Ubuntu VM image
 	@echo "Building custom Ubuntu VM image..."

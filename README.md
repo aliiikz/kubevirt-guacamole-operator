@@ -10,7 +10,6 @@ A Kubernetes operator that manages KubeVirt virtual machines with integrated Apa
 
 This operator provides:
 
-- **Automated VM Management**: Create, manage, and delete KubeVirt virtual machines with custom resource definitions
 - **Integrated Remote Access**: Apache Guacamole web-based remote desktop access for VMs
 - **Identity Management**: Keycloak integration for SSO and user authentication
 - **Monitoring Stack**: Prometheus and Grafana for comprehensive monitoring
@@ -19,7 +18,7 @@ This operator provides:
 
 ## Architecture
 
-//TODO
+![alt text](./docs/Architecture.png)
 
 ## Table of Contents
 
@@ -323,6 +322,10 @@ kubectl get virtualmachine ubuntu1-vm -o yaml | grep -A 5 "guacamole"
    - Navigate to `http://<node-ip>:30080/guacamole/`
    - Login via Keycloak (admin/admin) or directly with Guacamole credentials
    - VMs will appear automatically in the connection list
+
+### Supported Protocols and Configuration
+
+The operator supports **RDP** and **VNC** protocols for remote access to VMs
 
 ### Managing VMs
 

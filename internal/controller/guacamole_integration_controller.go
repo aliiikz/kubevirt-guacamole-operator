@@ -1,7 +1,7 @@
 /*
 Copyright 2025.
 Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
+you may not use thle except in compliance with the License.
 You may obtain a copy of the License at
     http://www.apache.org/licenses/LICENSE-2.0
 Unless required by applicable law or agreed to in writing, software
@@ -100,9 +100,7 @@ func (r *VirtualMachineReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	var vm kubevirtv1.VirtualMachine
 	if err := r.Get(ctx, req.NamespacedName, &vm); err != nil {
 		if client.IgnoreNotFound(err) == nil {
-			// VM was deleted, send deletion notification if it was being tracked
 			logger.Info("VM deleted", "name", req.Name, "namespace", req.Namespace)
-			r.handleVMDeletion(ctx, req.Name, req.Namespace, "")
 		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -140,9 +138,11 @@ func (r *VirtualMachineReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 
 		// Create Guacamole connection
+		// ConnectionID is Guacamole's unique identifier for the created connection
 		connectionID, err := r.createGuacamoleConnection(ctx, &vm)
 		if err != nil {
 			logger.Error(err, "Failed to create Guacamole connection")
+			// Instead of controlled controller-runtime's exponential backoff, use retry timing for external API failures
 			return ctrl.Result{RequeueAfter: DefaultRetryDelay}, nil
 		}
 
@@ -198,7 +198,7 @@ func (r *VirtualMachineReconciler) handleDeletion(ctx context.Context, vm *kubev
 	connectionID := vm.Annotations[GuacamoleConnectionIDAnnotation]
 
 	// Delete Guacamole connection
-	if err := r.handleVMDeletion(ctx, vm.Name, vm.Namespace, connectionID); err != nil {
+	if err := r.deleteGuacamoleConnection(ctx, connectionID); err != nil {
 		logger.Error(err, "Failed to delete Guacamole connection")
 		// Continue with cleanup even if Guacamole deletion fails
 	}
@@ -330,7 +330,16 @@ func (r *VirtualMachineReconciler) buildGuacamoleConnection(ctx context.Context,
 	// Check for custom protocol in annotations
 	if vm.Annotations != nil {
 		if customProtocol, exists := vm.Annotations["vm-watcher.setofangdar.polito.it/protocol"]; exists {
-			protocol = strings.ToLower(customProtocol)
+			normalizedProtocol := strings.ToLower(customProtocol)
+			// Only allow RDP and VNC protocols
+			if normalizedProtocol == "rdp" || normalizedProtocol == "vnc" {
+				protocol = normalizedProtocol
+			} else {
+				logger.Info("Unsupported protocol specified, defaulting to RDP",
+					"vm", vm.Name,
+					"requestedProtocol", customProtocol,
+					"supportedProtocols", "rdp, vnc")
+			}
 		}
 		if customPort, exists := vm.Annotations["vm-watcher.setofangdar.polito.it/port"]; exists {
 			port = customPort
@@ -346,10 +355,6 @@ func (r *VirtualMachineReconciler) buildGuacamoleConnection(ctx context.Context,
 	case "rdp":
 		if port == "5900" { // If still default VNC port
 			port = "3389"
-		}
-	case "ssh":
-		if port == "3389" || port == "5900" { // If still default port from other protocols
-			port = "22"
 		}
 	}
 
@@ -409,24 +414,9 @@ func (r *VirtualMachineReconciler) buildGuacamoleConnection(ctx context.Context,
 			}
 		}
 
-	case "ssh":
-		parameters["font-size"] = "12"
-		parameters["color-scheme"] = ""
-		parameters["scrollback"] = ""
-		parameters["terminal-type"] = ""
-
-		// Add SSH credentials if provided
-		if vm.Annotations != nil {
-			if username, exists := vm.Annotations["vm-watcher.setofangdar.polito.it/username"]; exists {
-				parameters["username"] = username
-			}
-			if password, exists := vm.Annotations["vm-watcher.setofangdar.polito.it/password"]; exists {
-				parameters["password"] = password
-			}
-			if privateKey, exists := vm.Annotations["vm-watcher.setofangdar.polito.it/private-key"]; exists {
-				parameters["private-key"] = privateKey
-			}
-		}
+	default:
+		// This should not happen due to validation above, but handle gracefully
+		return nil, fmt.Errorf("unsupported protocol '%s', only 'rdp' and 'vnc' are supported", protocol)
 	}
 
 	// Set empty values for unused parameters (Guacamole expects all parameters)
@@ -577,12 +567,12 @@ func (r *VirtualMachineReconciler) updateGuacamoleConnection(ctx context.Context
 	return nil
 }
 
-// handleVMDeletion deletes the Guacamole connection when VM is deleted
-func (r *VirtualMachineReconciler) handleVMDeletion(ctx context.Context, vmName, vmNamespace, connectionID string) error {
+// deleteGuacamoleConnection deletes the Guacamole connection when VM is deleted
+func (r *VirtualMachineReconciler) deleteGuacamoleConnection(ctx context.Context, connectionID string) error {
 	logger := log.FromContext(ctx)
 
 	if connectionID == "" {
-		logger.Info("No Guacamole connection ID found, skipping deletion", "vm", vmName)
+		logger.Info("No Guacamole connection ID found, skipping deletion")
 		return nil
 	}
 
@@ -620,7 +610,6 @@ func (r *VirtualMachineReconciler) handleVMDeletion(ctx context.Context, vmName,
 	}
 
 	logger.Info("Successfully deleted Guacamole connection",
-		"vm", vmName,
 		"connection_id", connectionID)
 
 	return nil
