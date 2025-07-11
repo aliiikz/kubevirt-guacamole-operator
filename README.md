@@ -169,6 +169,59 @@ First, configure your environment with the correct IP addresses:
 ./workflow.sh monitoring
 ```
 
+#### 4. Configuring Keycloak Integration
+
+After deployment, configure Keycloak to enable SSO with Guacamole:
+
+**Step 1: Access Keycloak Admin Console**
+
+```bash
+# Get your node IP
+./workflow.sh detect-ip
+
+# Navigate to Keycloak admin console
+# URL: http://<node-ip>:30081/
+# Default credentials: admin/admin
+```
+
+**Step 2: Create a New Realm**
+
+1. Click **"Create realm"** in the top-left dropdown
+2. Set **Realm name**: `GuacamoleRealm`
+3. Click **"Create"**
+
+**Step 3: Configure Guacamole Client**
+
+1. In the new realm, go to **Clients** → **Create client**
+2. **Client ID**: `guacamole`
+3. Click **"Next"**
+4. **Authentication flow**: Check **"Implicit flow"**
+5. Click **"Next"**
+
+**Step 4: Configure Client URLs**
+Replace `<node-ip>` with your actual node IP:
+
+- **Root URL**: `http://<node-ip>:30080/guacamole/`
+- **Home URL**: `http://<node-ip>:30080/guacamole/`
+- **Valid redirect URIs**: `http://<node-ip>:30080/guacamole/*`
+- **Web origins**: `http://<node-ip>:30080/guacamole/`
+
+**Step 5: Create Users**
+
+1. Go to **Users** → **Create new user**
+2. Set **Username** (e.g., `testuser`)
+3. Set **First name** and **Last name**
+4. Click **"Create"**
+5. Go to **Credentials** tab → **Set password**
+
+**Step 6: Test SSO Login**
+
+1. Logout from Guacamole
+2. You should now see **"Login with OpenID Connect"** option
+3. Click it to login via Keycloak with your created user
+
+> **Note**: After SSO is configured, VM connections created by the operator will not be accessible to newly created user who logged-in via Keycloak. You need to manually assign permissions for specific connections (Setting->Connections) through the Guacamole admin interface .
+
 ## Configuration
 
 ### Automatic IP Detection
