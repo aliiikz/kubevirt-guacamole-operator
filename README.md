@@ -29,11 +29,12 @@ This operator provides:
   - [Manual Setup](#manual-setup)
 - [Configuration](#configuration)
 - [Usage](#usage)
-- [Components](#components)
+  - [Creating Virtual Machines](#creating-virtual-machines)
+  - [Managing VMs](#managing-vms)
 - [Access Points](#access-points)
+- [Components](#components)
 - [Monitoring](#monitoring)
-- [Troubleshooting](#troubleshooting)
-- [Development](#development)
+- [Known Limitations](#known-limitations)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -42,14 +43,28 @@ This operator provides:
 Deploy everything with a single command:
 
 ```bash
-# Complete automated deployment
+# Clone the repository
+git clone <repository-url>
+cd kubevirt-guacamole-operator
+
+# Complete automated deployment (automatically detects IP)
 ./workflow.sh full-setup
 
 # Check deployment status
 ./workflow.sh status
+
+# View detected endpoints
+./workflow.sh detect-ip
 ```
 
-> **💡 Need help?** If you encounter any issues, check the [Troubleshooting Guide](docs/troubleshoot.md) for common problems and solutions.
+**What you get:**
+
+- ✅ KubeVirt virtual machines with web-based remote access
+- ✅ Apache Guacamole for RDP/VNC connections
+- ✅ Keycloak for identity management
+- ✅ Private container registry
+- ✅ Prometheus & Grafana monitoring
+- ✅ Automatic IP detection and configuration
 
 ## Prerequisites
 
@@ -81,73 +96,45 @@ watch kubectl get pods --all-namespaces
 
 **What this does:**
 
-1. Installs KubeVirt and CDI
-2. Configures insecure registry settings
-3. Deploys container registry with persistent storage
-4. Builds and pushes operator image
-5. Installs CRDs and deploys operator
-6. Deploys Guacamole stack (Guacamole + PostgreSQL + Keycloak)
-7. Sets up monitoring stack (Prometheus + Grafana)
+1. Detects and configures IP addresses (automatically)
+2. Installs KubeVirt and CDI
+3. Configures insecure registry settings
+4. Deploys container registry with persistent storage
+5. Builds and pushes operator image
+6. Installs CRDs and deploys operator
+7. Deploys Guacamole stack (Guacamole + PostgreSQL + Keycloak)
+8. Sets up monitoring stack (Prometheus + Grafana)
 
 ### Manual Setup
 
 For more control or troubleshooting, follow these steps:
 
-#### 1. Install Prerequisites
+#### 1. Automatic IP Detection
+
+First, configure your environment with the correct IP addresses:
+
+```bash
+# Detect current IP and show endpoints
+./workflow.sh detect-ip
+
+# Update all configuration files with current IP
+./workflow.sh update-configs
+```
+
+> This step is **critical** - it must be done before deploying any components, otherwise they will be configured with incorrect IP addresses.
+
+#### 2. Install Prerequisites
 
 **Install KubeVirt:**
 
 ```bash
 ./workflow.sh setup-kubevirt
-
-# Or manually:
-export VERSION=$(curl -s https://storage.googleapis.com/kubevirt-prow/release/kubevirt/kubevirt/stable.txt)
-kubectl create -f "https://github.com/kubevirt/kubevirt/releases/download/${VERSION}/kubevirt-operator.yaml"
-kubectl create -f "https://github.com/kubevirt/kubevirt/releases/download/${VERSION}/kubevirt-cr.yaml"
-kubectl wait --for=condition=Available kubevirt.kubevirt.io/kubevirt -n kubevirt --timeout=300s
 ```
 
 **Install CDI (Containerized Data Importer):**
 
 ```bash
 ./workflow.sh setup-cdi
-
-# Or manually:
-export VERSION=$(basename $(curl -s -w %{redirect_url} https://github.com/kubevirt/containerized-data-importer/releases/latest))
-kubectl create -f "https://github.com/kubevirt/containerized-data-importer/releases/download/$VERSION/cdi-operator.yaml"
-kubectl create -f "https://github.com/kubevirt/containerized-data-importer/releases/download/$VERSION/cdi-cr.yaml"
-```
-
-#### 2. Configure Registry (Required for K3s and Docker)
-
-Update IP addresses in the following files to match your node IP:
-
-```bash
-# Find your node IP
-NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[0].address}')
-echo "Node IP: $NODE_IP"
-
-# Configure Docker for insecure registry
-sudo tee /etc/docker/daemon.json > /dev/null <<EOF
-{
-  "insecure-registries": ["$NODE_IP:30500"]
-}
-EOF
-sudo systemctl restart docker
-
-# Configure K3s for insecure registry
-sudo mkdir -p /etc/rancher/k3s
-sudo tee /etc/rancher/k3s/registries.yaml > /dev/null <<EOF
-mirrors:
-  "$NODE_IP:30500":
-    endpoint:
-      - "http://$NODE_IP:30500"
-configs:
-  "$NODE_IP:30500":
-    tls:
-      insecure_skip_verify: true
-EOF
-sudo systemctl restart k3s
 ```
 
 #### 3. Deploy Components
@@ -172,123 +159,53 @@ sudo systemctl restart k3s
 
 ## Configuration
 
-### Environment Variables
+### Automatic IP Detection
 
-Key configuration options can be set via environment variables:
+The project automatically detects your node IP address, eliminating the need for manual configuration when moving between different environments.
 
-| Variable         | Default       | Description                                 |
-| ---------------- | ------------- | ------------------------------------------- |
-| `REGISTRY_IP`    | `192.168.1.4` | IP address of the container registry (Host) |
-| `REGISTRY_PORT`  | `30500`       | Port for the container registry             |
-| `GUACAMOLE_PORT` | `30080`       | Port for Guacamole web interface            |
-| `KEYCLOAK_PORT`  | `30081`       | Port for Keycloak admin interface           |
+#### How It Works
 
-### Updating Registry IP
+1. **IP Detection**: The system automatically detects your current node IP using `hostname -I`
+2. **Environment Variables**: All configurations use environment variables that are automatically populated
+3. **System Configuration**: Docker and K3s configurations are updated automatically
 
-Your node IP is different from the default IP `192.168.1.4`, update the following files:
+> **Important**: IP detection and configuration must be done **before** deploying any components. Components deployed with incorrect IP addresses will not function properly.
 
-1. Find and replace in DataVolume manifests
+#### Usage
 
 ```bash
-find virtualmachines/ -name "*.yml" -exec sed -i 's/192.168.1.4/YOUR_NODE_IP/g' {} \;
+# Detect current IP and show endpoints
+./workflow.sh detect-ip
+
+# Update all configuration files with current IP
+./workflow.sh update-configs
 ```
 
-2. Update Docker configuration
-   Change the IP of the `insecure-registries` in the `/etc/docker/daemon.json` file then, restart Docker service.
+#### Manual Environment Configuration
 
-3. Update K3S configuration
-   Change the IP of the `mirrors` and `mirrors` in the `/etc/rancher/k3s/registries.yaml` file then, restart K3S service.
+If you need to override the automatic detection, you can source the environment file:
 
-### Guacamole Login via Keycloak
+```bash
+# Source environment configuration
+source .env
 
-Keycloak integration with Guacamole has been configured, but a few manual steps are required to finalize the setup:
-
-#### 1. Create a Realm in Keycloak
-
-- Name the new realm: `GuacamoleRealm`.
-
-#### 2. Configure the Guacamole Client
-
-In the `GuacamoleRealm`, navigate to the **Clients** section and:
-
-- Click **Create** and set the following:
-
-  - **Client ID**: `guacamole`
-  - Enable **Implicit Flow**
-  - Set the following URLs:
-
-    - **Root URL**: `http://192.168.1.4:30080/guacamole/`
-    - **Home URL**: `http://192.168.1.4:30080/guacamole/`
-    - **Web Origins**: `http://192.168.1.4:30080/guacamole/`
-    - **Valid Redirect URIs**: `http://192.168.1.4:30080/guacamole/*`
-
-#### 3. Create Groups for Access Control
-
-- Go to the **Groups** section in the realm.
-- Create the following groups:
-  - `vm-users` (regular users who can access VMs)
-  - `vm-admins` (administrators who can manage connections)
-
-#### 4. Create a User
-
-- Go to the **Users** section in the realm.
-- Create a new user and assign a password.
-- **Assign the user to a group** (e.g., `vm-users`)
-
-  > **Important**: Users must be assigned to either `vm-users` or `vm-admins` group to access VM connections.
-
-#### 5. Configure Group Claims in Client
-
-- In the `guacamole` client, go to **Client Scopes**
-- Click on **roles**
-- Click on **Mappers**
-- **Delete the existing `groups` mapper** (click on it and delete it)
-- Click **Add Mapper** and from `By Configuration` add the `Group Membership` mapper and name it `groups`
-- Click **Add Mapper** and from `By Configuration` add the `User Realm Role` mapper and name it `admin-role`
-
-**Configure the new mapper with these settings:**
-
-- **Add to ID token**: ON
-- **Add to access token**: ON
-
-#### 6. Share VM Connections with Groups
-
-**Current Behavior**: VM connections are created for individual users and require manual sharing.
-
-**Manual Sharing Process**:
-
-1. **Login to Guacamole** as admin (guacadmin/guacadmin)
-2. **Go to Settings** → **Connections**
-3. **Select your VM connection** (e.g., ubuntu1-vm)
-4. **Go to Sharing tab**
-5. **Add the groups**: `vm-users` and/or `vm-admins`
-6. **Grant permissions**:
-   - `vm-users`: READ permission (can connect to VMs)
-   - `vm-admins`: READ + UPDATE + DELETE permissions (can manage VMs)
-
-**Automated Sharing (Future Enhancement)**:
-The operator can be enhanced to automatically share new VM connections with predefined groups by:
-
-- Adding group annotations to VirtualMachine resources
-- Automatically calling Guacamole's sharing API when connections are created
-- Supporting connection templates with default group permissions
-
-**Example of future VM annotation**:
-
-```yaml
-apiVersion: kubevirt.io/v1
-kind: VirtualMachine
-metadata:
-  name: ubuntu1-vm
-  annotations:
-    vm-watcher.setofangdar.polito.it/auto-share-groups: "vm-users:READ,vm-admins:ADMIN"
+# Or set specific variables
+export NODE_IP=192.168.1.100
+export REGISTRY_PORT=30500
 ```
 
-#### 7. Sign In via Guacamole
+### Environment Variables
 
-- Open the Guacamole UI in your browser.
-- Choose the **OpenID Connect** option to be redirected to Keycloak for authentication.
-- **VM connections will appear** based on your group membership and sharing permissions.
+The following environment variables are automatically detected and can be overridden:
+
+| Variable          | Auto-Detected | Description                       |
+| ----------------- | ------------- | --------------------------------- |
+| `NODE_IP`         | ✓             | IP address of the Kubernetes node |
+| `REGISTRY_PORT`   | 30500         | Port for the container registry   |
+| `GUACAMOLE_PORT`  | 30080         | Port for Guacamole web interface  |
+| `KEYCLOAK_PORT`   | 30081         | Port for Keycloak admin interface |
+| `GRAFANA_PORT`    | 30300         | Port for Grafana dashboard        |
+| `PROMETHEUS_PORT` | 30090         | Port for Prometheus metrics       |
 
 ## Usage
 
@@ -323,9 +240,9 @@ kubectl get virtualmachine ubuntu1-vm -o yaml | grep -A 5 "guacamole"
    - Login via Keycloak (admin/admin) or directly with Guacamole credentials
    - VMs will appear automatically in the connection list
 
-### Supported Protocols and Configuration
+### Supported Protocols
 
-The operator supports **RDP** and **VNC** protocols for remote access to VMs
+The operator supports **RDP** and **VNC** protocols for remote access to VMs.
 
 ### Managing VMs
 
@@ -342,6 +259,21 @@ kubectl delete datavolume ubuntu1-dv        # Then delete DataVolume
 ```
 
 > **Important**: Always delete the VirtualMachine before deleting the DataVolume. The operator needs the VM object with its connection ID annotation to properly clean up the Guacamole connection.
+
+## Access Points
+
+Once deployed, you can access the following services:
+
+| Service         | URL                                 | Credentials         |
+| --------------- | ----------------------------------- | ------------------- |
+| **Guacamole**   | `http://<node-ip>:30080/guacamole/` | guacadmin/guacadmin |
+| **Keycloak**    | `http://<node-ip>:30081/`           | admin/admin         |
+| **Grafana**     | `http://<node-ip>:30300/`           | admin/admin         |
+| **Prometheus**  | `http://<node-ip>:30090/`           | -                   |
+| **Registry**    | `http://<node-ip>:30500/`           | -                   |
+| **Registry UI** | `http://<node-ip>:30501/`           | -                   |
+
+> **Note**: Replace `<node-ip>` with your actual node IP address. Use `./workflow.sh detect-ip` to see your current endpoints.
 
 ## Components
 
@@ -365,15 +297,9 @@ kubectl delete datavolume ubuntu1-dv        # Then delete DataVolume
 
 ### Default Credentials
 
-- Keycloak:
-  - username: admin
-  - password: admin
-- Guacamole:
-  - username: guacadmin
-  - password: guacadmin
-- Grafana:
-  - username: admin
-  - passsword: admin
+- **Keycloak**: admin / admin
+- **Guacamole**: guacadmin / guacadmin
+- **Grafana**: admin / admin
 
 ## Monitoring
 
@@ -409,11 +335,7 @@ kubectl port-forward -n monitoring svc/grafana 3000:3000
 kubectl port-forward -n monitoring svc/prometheus 9090:9090
 ```
 
-## Troubleshooting
-
-For detailed troubleshooting information, common issues, and solutions, please refer to the [Troubleshooting Guide](docs/troubleshoot.md).
-
-### Quick Diagnostic Commands
+### Troubleshooting Commands
 
 ```bash
 # Check overall system status
@@ -471,10 +393,3 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-
-## Acknowledgments
-
-- [KubeVirt](https://kubevirt.io/) - Kubernetes Virtualization API
-- [Apache Guacamole](https://guacamole.apache.org/) - Clientless remote desktop gateway
-- [Keycloak](https://www.keycloak.org/) - Identity and access management
-- [Kubebuilder](https://book.kubebuilder.io/) - SDK for building Kubernetes APIs
