@@ -82,7 +82,7 @@ cd kubevirt-guacamole-operator
 
 - **Ansible** - For automated VM configuration (installed automatically if needed)
 - **jq** - For JSON processing in scripts
-- **SSH key pair** - For VM access (default: `~/.ssh/id_rsa`)
+- **SSH key pair** - For VM access (default: `~/.ssh/kubevmkey`)
 
 > **Note**: The workflow script will automatically install Ansible if it's not present when using `create-vm` or `configure-vms` commands.
 
@@ -228,7 +228,7 @@ The following environment variables are automatically detected and can be overri
 The easiest way to create and configure VMs is using the automated workflow:
 
 ```bash
-# Create VMs and automatically configure them with Ansible
+# Copies the SSH keys to the user .ssh directory and creates VMs and automatically configure them with Ansible
 ./workflow.sh create-vm
 
 # List available VMs
@@ -282,7 +282,7 @@ cd ansible && ansible-playbook configure-vms.yml
 
 [vms:vars]
 ansible_user=ubuntu
-ansible_ssh_private_key_file=~/.ssh/id_rsa
+ansible_ssh_private_key_file=~/.ssh/kubevmkey
 ansible_ssh_common_args=-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
 ```
 
@@ -542,7 +542,7 @@ kubectl get vmi <vm-name> -o jsonpath='{.status.interfaces[0].ipAddress}'
 
 **Ansible connection failures:**
 
-- Ensure SSH key exists: `ls -la ~/.ssh/id_rsa*`
+- Ensure SSH key exists: `ls -la ~/.ssh/kubevmkey*`
 - Check VM SSH service: `ssh ubuntu@<vm-ip>`
 - Verify inventory file: `cat ansible/inventory`
 - VMs may take time to boot - wait 2-3 minutes after VM creation

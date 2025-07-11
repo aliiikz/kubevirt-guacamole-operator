@@ -52,6 +52,7 @@ show_help() {
     echo "  deploy-stack       Deploy Guacamole stack (Guacamole, Postgres, Keycloak)"
     echo "  monitoring         Deploy monitoring stack (Prometheus & Grafana)"
     echo "  push-custom-vm     Build and push custom Ubuntu Docker image to Registry"
+    echo "  setup-ssh-keys     Setup SSH keys for VMs"
     echo "  create-vm          Create VMs and configure them with Ansible"
     echo "  configure-vms      Configure deployed VMs using Ansible"
     echo "  list-vms           List available VMs and their IPs"
@@ -657,8 +658,54 @@ show_endpoints() {
     echo ""
 }
 
+setup_ssh_keys() {
+    print_header "SETTING UP SSH KEYS FOR VMs"
+    
+    local key_name="kubevmkey"
+    local source_dir="virtualmachines/sshkeys"
+    local ssh_dir="$HOME/.ssh"
+    
+    # Create .ssh directory if it doesn't exist
+    mkdir -p "$ssh_dir"
+    
+    # Copy private key
+    if [[ -f "$source_dir/$key_name" ]]; then
+        echo "Copying private key: $key_name"
+        cp "$source_dir/$key_name" "$ssh_dir/$key_name"
+        chmod 600 "$ssh_dir/$key_name"
+        chown $USER:$USER "$ssh_dir/$key_name"
+        print_success "Private key copied to $ssh_dir/$key_name"
+    else
+        print_error "Private key not found: $source_dir/$key_name"
+        return 1
+    fi
+    
+    # Copy public key
+    if [[ -f "$source_dir/$key_name.pub" ]]; then
+        echo "Copying public key: $key_name.pub"
+        cp "$source_dir/$key_name.pub" "$ssh_dir/$key_name.pub"
+        chmod 644 "$ssh_dir/$key_name.pub"
+        chown $USER:$USER "$ssh_dir/$key_name.pub"
+        print_success "Public key copied to $ssh_dir/$key_name.pub"
+    else
+        print_error "Public key not found: $source_dir/$key_name.pub"
+        return 1
+    fi
+    
+    # Show public key content
+    echo ""
+    echo "Public key content:"
+    cat "$ssh_dir/$key_name.pub"
+    echo ""
+    
+    print_success "SSH keys setup completed!"
+}
+
 create_vm() {
     print_header "CREATING VMs"
+    
+    # First, setup SSH keys for VMs
+    setup_ssh_keys
     
     # List of VM files to create
     local vm_files=(
@@ -828,6 +875,9 @@ case "${1:-help}" in
     update-configs)
         substitute_env_vars
         update_system_configs
+        ;;
+    setup-ssh-keys)
+        setup_ssh_keys
         ;;
     create-vm)
         create_vm
