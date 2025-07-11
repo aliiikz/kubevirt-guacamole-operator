@@ -8,10 +8,13 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
+# Source IP detection script
+source scripts/detect-ip.sh
+
 # Configuration
 IMAGE_NAME="vm-watcher"
 IMAGE_TAG="latest"
-REGISTRY_HOST="192.168.1.4"
+REGISTRY_HOST="$NODE_IP"
 REGISTRY_PORT="30500"
 
 print_header() {
@@ -35,24 +38,11 @@ print_error() {
 }
 
 show_help() {
-    echo "Usage: $0 [CO    full-setup)
-        print_header "COMPLETE SETUP WORKFLOW"
-        install_kubevirt
-        sleep 90
-        install_cdi
-        sleep 30
-        setup_registry
-        sleep 30
-        build_operator
-        push_operator
-        make install  # Install CRDs before deploying operator
-        make deploy
-        deploy_stack
-        deploy_monitoring
-        print_header "SETUP COMPLETE!"
-        show_status"
-
+    echo "Usage: $0 [COMMAND]"
+    echo ""
     echo "Commands:"
+    echo "  detect-ip          Show detected IP addresses and endpoints"
+    echo "  update-configs     Update configuration files with current IP"
     echo "  setup-kubevirt     Setup KubeVirt (required for VMs)"
     echo "  setup-cdi          Setup CDI (required for VMs)"
     echo "  setup-registry     Setup Docker Registry"
@@ -70,10 +60,10 @@ show_help() {
     echo "  help               Show this help"
     echo ""
     echo "Examples:"
+    echo "  $0 detect-ip          # Show detected IP and endpoints"
+    echo "  $0 update-configs     # Update configs with current IP"
     echo "  $0 full-setup         # Complete setup from scratch"
     echo "  $0 build-operator     # Just build the operator image"
-    echo "  $0 build-custom-vm    # Build custom Ubuntu VM image"
-    echo "  $0 push-custom-vm     # Build and push custom Ubuntu Docker image to registry"
     echo "  $0 push-operator      # Build and push operator to registry"
     echo "  $0 cleanup-all        # Complete cleanup - removes everything!"
 }
@@ -105,9 +95,9 @@ setup_registry() {
     sleep 30
     
     print_success "Docker Registry setup completed"
-    echo -e "${GREEN}Registry is available at: ${BLUE}http://192.168.1.4:30500${NC}"
-    echo -e "${GREEN}Registry UI is available at: ${BLUE}http://192.168.1.4:30501${NC}"
-    echo -e "${GREEN}To use: ${BLUE}docker tag <image> 192.168.1.4:30500/<image> && docker push 192.168.1.4:30500/<image>${NC}"
+    echo -e "${GREEN}Registry is available at: ${BLUE}http://$NODE_IP:30500${NC}"
+    echo -e "${GREEN}Registry UI is available at: ${BLUE}http://$NODE_IP:30501${NC}"
+    echo -e "${GREEN}To use: ${BLUE}docker tag <image> $NODE_IP:30500/<image> && docker push $NODE_IP:30500/<image>${NC}"
 }
 
 build_operator() {
@@ -254,8 +244,8 @@ deploy_monitoring() {
     print_success "Monitoring stack deployed successfully!"
     echo ""
     echo "Access URLs:"
-    echo "  Prometheus: http://192.168.1.4:30090"
-    echo "  Grafana: http://192.168.1.4:30091 (admin/admin)"
+    echo "  Prometheus: http://$NODE_IP:30090"
+    echo "  Grafana: http://$NODE_IP:30300 (admin/admin)"
 }
 
 cleanup_monitoring() {
@@ -293,6 +283,9 @@ cleanup_monitoring() {
 deploy_stack() {
     print_header "DEPLOYING GUACAMOLE STACK"
     
+    # Substitute environment variables in stack.yaml
+    substitute_env_vars
+    
     echo "Deploying Guacamole stack (Guacamole, Postgres, Keycloak)..."
     kubectl apply -f stack/stack.yaml
     
@@ -315,8 +308,8 @@ deploy_stack() {
     print_success "Guacamole stack deployed successfully!"
     echo ""
     echo "Access URLs:"
-    echo "  Guacamole: http://192.168.1.4:30080/guacamole/"
-    echo "  Keycloak: http://192.168.1.4:30081/"
+    echo "  Guacamole: http://$NODE_IP:30080/guacamole/"
+    echo "  Keycloak: http://$NODE_IP:30081/"
     echo ""
     echo "Default Keycloak admin credentials:"
     echo "  Username: admin"
@@ -443,8 +436,8 @@ show_status() {
         kubectl get pods -n monitoring || echo "No monitoring pods found"
         echo ""
         echo "Access URLs:"
-        echo "  Prometheus: http://192.168.1.4:30090"
-        echo "  Grafana: http://192.168.1.4:30300 (admin/admin)"
+        echo "  Prometheus: http://$NODE_IP:30090"
+        echo "  Grafana: http://$NODE_IP:30300 (admin/admin)"
     else
         echo "Monitoring not deployed"
     fi
@@ -578,6 +571,88 @@ install_cdi() {
     kubectl get pods -n cdi
 }
 
+# Function to substitute environment variables in configuration files
+substitute_env_vars() {
+    print_header "SUBSTITUTING ENVIRONMENT VARIABLES"
+    
+    # Create backup directory
+    mkdir -p .backup
+    
+    # List of files to process
+    local files=(
+        "config/manager/manager.yaml"
+        "stack/stack.yaml"
+        "config/default/kustomization.yaml"
+    )
+    
+    for file in "${files[@]}"; do
+        if [[ -f "$file" ]]; then
+            print_success "Processing $file"
+            # Create backup
+            cp "$file" ".backup/$(basename $file).backup"
+            # Substitute environment variables
+            envsubst < "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+        fi
+    done
+    
+    print_success "Environment variable substitution completed"
+}
+
+# Function to update system configurations
+update_system_configs() {
+    print_header "UPDATING SYSTEM CONFIGURATIONS"
+    
+    # Update Docker daemon configuration
+    if command -v docker >/dev/null 2>&1; then
+        print_success "Updating Docker configuration for registry at $NODE_IP:30500"
+        sudo tee /etc/docker/daemon.json > /dev/null <<EOF
+{
+  "insecure-registries": ["$NODE_IP:30500"]
+}
+EOF
+        sudo systemctl restart docker
+        print_success "Docker configuration updated"
+    fi
+    
+    # Update K3s configuration
+    if systemctl is-active --quiet k3s; then
+        print_success "Updating K3s configuration for registry at $NODE_IP:30500"
+        sudo mkdir -p /etc/rancher/k3s
+        sudo tee /etc/rancher/k3s/registries.yaml > /dev/null <<EOF
+mirrors:
+  "$NODE_IP:30500":
+    endpoint:
+      - "http://$NODE_IP:30500"
+configs:
+  "$NODE_IP:30500":
+    tls:
+      insecure_skip_verify: true
+EOF
+        sudo systemctl restart k3s
+        print_success "K3s configuration updated"
+    fi
+    
+    # Update CDI configuration
+    if kubectl get cdi cdi >/dev/null 2>&1; then
+        print_success "Updating CDI configuration for insecure registry"
+        kubectl patch cdi cdi --type='merge' -p="{\"spec\":{\"config\":{\"insecureRegistries\":[\"$NODE_IP:30500\"]}}}"
+        print_success "CDI configuration updated"
+    fi
+}
+
+# Function to show detected endpoints
+show_endpoints() {
+    print_header "DETECTED ENDPOINTS"
+    echo -e "${GREEN}Node IP: ${BLUE}$NODE_IP${NC}"
+    echo -e "${GREEN}Registry: ${BLUE}http://$NODE_IP:30500${NC}"
+    echo -e "${GREEN}Registry UI: ${BLUE}http://$NODE_IP:30501${NC}"
+    echo -e "${GREEN}Guacamole: ${BLUE}http://$NODE_IP:30080/guacamole/${NC}"
+    echo -e "${GREEN}Keycloak: ${BLUE}http://$NODE_IP:30081${NC}"
+    echo -e "${GREEN}Grafana: ${BLUE}http://$NODE_IP:30300${NC}"
+    echo -e "${GREEN}Prometheus: ${BLUE}http://$NODE_IP:30090${NC}"
+    echo ""
+}
+
 case "${1:-help}" in
     setup-kubevirt)
         install_kubevirt
@@ -625,6 +700,8 @@ case "${1:-help}" in
         ;;
     full-setup)
         print_header "COMPLETE SETUP WORKFLOW"
+        show_endpoints
+        update_system_configs
         install_kubevirt
         sleep 180
         install_cdi
@@ -633,11 +710,20 @@ case "${1:-help}" in
         sleep 30
         build_operator
         push_operator
-        make install  # Install CRDs before deploying operator
+        make install
         make deploy
+        deploy_stack
         deploy_monitoring
         print_header "SETUP COMPLETE!"
+        show_endpoints
         show_status
+        ;;
+    detect-ip)
+        show_endpoints
+        ;;
+    update-configs)
+        substitute_env_vars
+        update_system_configs
         ;;
     help|*)
         show_help

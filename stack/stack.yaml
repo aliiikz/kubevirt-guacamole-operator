@@ -19,12 +19,12 @@ data:
     postgresql-password=guacamole
 
     # OpenID Connect Configuration
-    openid-authorization-endpoint=http://192.168.1.4:30081/realms/GuacamoleRealm/protocol/openid-connect/auth
-    openid-token-endpoint=http://192.168.1.4:30081/realms/GuacamoleRealm/protocol/openid-connect/token
-    openid-jwks-endpoint=http://192.168.1.4:30081/realms/GuacamoleRealm/protocol/openid-connect/certs
-    openid-issuer=http://192.168.1.4:30081/realms/GuacamoleRealm
+    openid-authorization-endpoint=http://${NODE_IP}:30081/realms/GuacamoleRealm/protocol/openid-connect/auth
+    openid-token-endpoint=http://${NODE_IP}:30081/realms/GuacamoleRealm/protocol/openid-connect/token
+    openid-jwks-endpoint=http://${NODE_IP}:30081/realms/GuacamoleRealm/protocol/openid-connect/certs
+    openid-issuer=http://${NODE_IP}:30081/realms/GuacamoleRealm
     openid-client-id=guacamole
-    openid-redirect-uri=http://192.168.1.4:30080/guacamole/
+    openid-redirect-uri=http://${NODE_IP}:30080/guacamole/
 
     # User Management
     openid-username-claim=preferred_username

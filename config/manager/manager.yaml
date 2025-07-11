@@ -63,7 +63,7 @@ spec:
           args:
             - --leader-elect
             - --health-probe-bind-address=:8081
-          image: 192.168.1.4:30500/vm-watcher:latest
+          image: ${NODE_IP}:30500/vm-watcher:latest
           imagePullPolicy: Always
           name: manager
           env:

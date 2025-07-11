@@ -30,7 +30,7 @@ go.work.sum
 # ----------------------
 # Environment Files
 # ----------------------
-.env
+# .env
 
 # ----------------------
 # Editor/IDE Files

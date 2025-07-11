@@ -1,8 +1,8 @@
 # Image URL for vm-watcher - always use registry
 IMG ?= $(REGISTRY_HOST):$(REGISTRY_PORT)/vm-watcher:latest
 
-# Registry configuration
-REGISTRY_HOST ?= 192.168.1.4
+# Registry configuration - use environment variables
+REGISTRY_HOST ?= $(shell bash -c 'source scripts/detect-ip.sh 2>/dev/null && echo $$NODE_IP || echo 127.0.0.1')
 REGISTRY_PORT ?= 30500
 
 # CONTAINER_TOOL defines the container tool to be used for building images
