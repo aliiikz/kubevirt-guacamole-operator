@@ -136,6 +136,7 @@ install_prerequisites() {
         # Add Go to PATH permanently
         if ! grep -q '/usr/local/go/bin' ~/.bashrc; then
             echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
+            export PATH=$PATH:/usr/local/go/bin
             print_success "Added Go to PATH in ~/.bashrc"
         fi
         

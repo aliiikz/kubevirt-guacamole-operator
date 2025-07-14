@@ -32,6 +32,47 @@ data:
     postgresql-auto-create-accounts=true
 ---
 apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keycloak-guacamole-realm
+  namespace: guacamole
+data:
+  guacamole-realm.json: |
+    {
+      "realm": "GuacamoleRealm",
+      "enabled": true,
+      "clients": [
+        {
+          "clientId": "guacamole",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": true,
+          "redirectUris": ["http://${NODE_IP}:30080/guacamole/*"],
+          "webOrigins": ["http://${NODE_IP}:30080/guacamole/"],
+          "rootUrl": "http://${NODE_IP}:30080/guacamole/",
+          "baseUrl": "http://${NODE_IP}:30080/guacamole/",
+          "standardFlowEnabled": true,
+          "implicitFlowEnabled": true
+        }
+      ],
+      "users": [
+        {
+          "username": "testuser",
+          "enabled": true,
+          "firstName": "Test",
+          "lastName": "User",
+          "credentials": [
+            {
+              "type": "password",
+              "value": "testpassword",
+              "temporary": false
+            }
+          ]
+        }
+      ]
+    }
+---
+apiVersion: v1
 kind: Service
 metadata:
   name: guacd
@@ -220,6 +261,7 @@ spec:
             - start-dev
             - --hostname-url=http://${NODE_IP}:30081
             - --hostname-strict=false
+            - --import-realm
           env:
             - name: KEYCLOAK_ADMIN
               value: admin
@@ -240,10 +282,15 @@ spec:
           volumeMounts:
             - name: keycloak-providers
               mountPath: /opt/keycloak/providers
+            - name: keycloak-realm
+              mountPath: /opt/keycloak/data/import
       volumes:
         - name: keycloak-providers
           hostPath:
             path: ${PROJECT_ROOT}/stack/keycloak/providers
+        - name: keycloak-realm
+          configMap:
+            name: keycloak-guacamole-realm
 ---
 apiVersion: v1
 kind: Service
