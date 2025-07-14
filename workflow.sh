@@ -41,27 +41,27 @@ show_help() {
     echo "Usage: $0 [COMMAND]"
     echo ""
     echo "Commands:"
-    echo "  detect-ip          Show detected IP addresses and endpoints"
-    echo "  update-configs     Update configuration files with current IP"
-    echo "  setup-kubevirt     Setup KubeVirt (required for VMs)"
-    echo "  setup-cdi          Setup CDI (required for VMs)"
-    echo "  setup-registry     Setup Docker Registry"
-    echo "  build-operator     Build operator image"
-    echo "  push-operator      Build and push operator to Docker Registry"
-    echo "  deploy             Deploy operator (installs CRDs and deploys operator)"
-    echo "  deploy-stack       Deploy Guacamole stack (Guacamole, Postgres, Keycloak)"
-    echo "  monitoring         Deploy monitoring stack (Prometheus & Grafana)"
-    echo "  push-custom-vm     Build and push custom Ubuntu Docker image to Registry"
-    echo "  setup-ssh-keys     Setup SSH keys for VMs"
-    echo "  create-vm          Create VMs and configure them with Ansible"
-    echo "  configure-vms      Configure deployed VMs using Ansible"
-    echo "  list-vms           List available VMs and their IPs"
-    echo "  status             Show status of all components"
-    echo "  cleanup-monitoring Clean up monitoring stack"
-    echo "  cleanup-all        COMPLETE CLEANUP - Reset cluster to clean slate"
-    echo "  force-clean-ns     Force clean stuck namespaces"
-    echo "  full-setup         Complete setup: KubeVirt + CDI + Registry + Build + Push + Deploy + Stack + Monitoring"
-    echo "  help               Show this help"
+    echo "  install-prerequisites   Install prerequisite packages"
+    echo "  detect-ip               Show detected IP addresses and endpoints"
+    echo "  update-configs          Update configuration files with current IP"
+    echo "  setup-kubevirt          Setup KubeVirt (required for VMs)"
+    echo "  setup-cdi               Setup CDI (required for VMs)"
+    echo "  setup-registry          Setup Docker Registry"
+    echo "  build-operator          Build operator image"
+    echo "  push-operator           Build and push operator to Docker Registry"
+    echo "  deploy                  Deploy operator (installs CRDs and deploys operator)"
+    echo "  deploy-stack            Deploy Guacamole stack (Guacamole, Postgres, Keycloak)"
+    echo "  monitoring              Deploy monitoring stack (Prometheus & Grafana)"
+    echo "  push-custom-vm          Build and push custom Ubuntu Docker image to Registry"
+    echo "  create-vm               Create VMs and configure them with Ansible"
+    echo "  configure-vms           Configure deployed VMs using Ansible"
+    echo "  list-vms                List available VMs and their IPs"
+    echo "  status                  Show status of all components"
+    echo "  cleanup-monitoring      Clean up monitoring stack"
+    echo "  cleanup-all             COMPLETE CLEANUP - Reset cluster to clean slate"
+    echo "  force-clean-ns          Force clean stuck namespaces"
+    echo "  full-setup              Complete setup: KubeVirt + CDI + Registry + Build + Push + Deploy + Stack + Monitoring"
+    echo "  help                    Show this help"
     echo ""
     echo "Examples:"
     echo "  $0 detect-ip          # Show detected IP and endpoints"
@@ -71,6 +71,237 @@ show_help() {
     echo "  $0 build-operator     # Just build the operator image"
     echo "  $0 push-operator      # Build and push operator to registry"
     echo "  $0 cleanup-all        # Complete cleanup - removes everything!"
+    echo ""
+    echo "Note: This script automatically detects the project root directory"
+    echo "      and updates all path references in the deployment files."
+}
+install_prerequisites() {
+    print_header "INSTALLING PREREQUISITES"
+    
+    # Update package list
+    print_success "Updating package list..."
+    sudo apt update
+    
+    # Install required packages
+    print_success "Installing required packages..."
+    local packages=(
+        "git"
+        "curl"
+        "wget"
+        "make"
+        "build-essential"
+        "jq"
+        "ansible"
+        "python3-pip"
+        "apt-transport-https"
+        "ca-certificates"
+        "gnupg"
+        "lsb-release"
+    )
+    
+    for package in "${packages[@]}"; do
+        if ! dpkg -l | grep -q "^ii  $package "; then
+            echo "Installing $package..."
+            sudo apt install -y "$package"
+        else
+            echo "$package is already installed"
+        fi
+    done
+    
+    # Install Go
+    print_success "Installing Go..."
+    local go_version="1.21.5"
+    local go_url="https://go.dev/dl/go${go_version}.linux-amd64.tar.gz"
+    
+    # Check if Go is already installed
+    if command -v go >/dev/null 2>&1; then
+        local current_version=$(go version | grep -o 'go[0-9]\+\.[0-9]\+\.[0-9]\+' | sed 's/go//')
+        echo "Go $current_version is already installed"
+        
+        # Check if it's the right version
+        if [[ "$current_version" == "$go_version" ]]; then
+            print_success "Go $go_version is already installed"
+        else
+            print_warning "Go $current_version is installed, but $go_version is recommended"
+        fi
+    else
+        echo "Downloading Go $go_version..."
+        wget -O go.tar.gz "$go_url"
+        
+        echo "Installing Go to /usr/local..."
+        sudo rm -rf /usr/local/go
+        sudo tar -C /usr/local -xzf go.tar.gz
+        rm go.tar.gz
+        
+        # Add Go to PATH permanently
+        if ! grep -q '/usr/local/go/bin' ~/.bashrc; then
+            echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
+            print_success "Added Go to PATH in ~/.bashrc"
+        fi
+        
+        # Verify installation
+        if command -v go >/dev/null 2>&1; then
+            print_success "Go installed successfully: $(go version)"
+        else
+            print_error "Go installation failed"
+            exit 1
+        fi
+    fi
+    
+    # Install Docker if not present
+    print_success "Checking Docker installation..."
+    if ! command -v docker >/dev/null 2>&1; then
+        print_warning "Docker not found. Installing Docker..."
+        
+        # Add Docker's official GPG key
+        sudo mkdir -p /etc/apt/keyrings
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        
+        # Add Docker repository
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+        
+        # Update package list and install Docker
+        sudo apt update
+        sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+        
+        # Add user to docker group
+        sudo usermod -aG docker $USER
+        
+        print_success "Docker installed successfully"
+        print_warning "Please log out and log back in to use Docker without sudo"
+    else
+        print_success "Docker is already installed: $(docker --version)"
+    fi
+    
+    # Install K3S if not present
+    print_success "Checking K3S installation..."
+    if ! command -v kubectl >/dev/null 2>&1 || ! systemctl is-active --quiet k3s; then
+        print_warning "K3S not found or not running. Installing K3S..."
+        curl -sfL https://get.k3s.io | sh -
+        
+        # Wait for K3S to be ready
+        echo "Waiting for K3S to be ready..."
+        sleep 30
+        
+        # Setup kubeconfig for the user
+        print_success "Setting up kubeconfig..."
+        
+        # Create .kube directory
+        mkdir -p $HOME/.kube
+        
+        # Copy the kubeconfig file
+        sudo cp /etc/rancher/k3s/k3s.yaml $HOME/.kube/config
+        sudo chown $USER:$USER $HOME/.kube/config
+        
+        # Add KUBECONFIG to bashrc if not already present
+        if ! grep -q "KUBECONFIG.*/.kube/config" ~/.bashrc; then
+            echo "" >> ~/.bashrc
+            echo "# Kubeconfig" >> ~/.bashrc
+            echo "export KUBECONFIG=\$HOME/.kube/config" >> ~/.bashrc
+            print_success "Added KUBECONFIG to ~/.bashrc"
+        fi
+        
+        # Export for current session
+        export KUBECONFIG=$HOME/.kube/config
+        
+        # Verify K3S installation
+        if systemctl is-active --quiet k3s && kubectl get nodes >/dev/null 2>&1; then
+            print_success "K3S installed and running successfully"
+        else
+            print_error "K3S installation failed"
+            exit 1
+        fi
+    else
+        print_success "K3S is already installed and running"
+        
+        # Ensure kubeconfig is set up even if K3S was already installed
+        if [[ ! -f "$HOME/.kube/config" ]]; then
+            print_success "Setting up kubeconfig for existing K3S installation..."
+            mkdir -p $HOME/.kube
+            sudo cp /etc/rancher/k3s/k3s.yaml $HOME/.kube/config
+            sudo chown $USER:$USER $HOME/.kube/config
+            
+            if ! grep -q "KUBECONFIG.*/.kube/config" ~/.bashrc; then
+                echo "" >> ~/.bashrc
+                echo "# Kubeconfig" >> ~/.bashrc
+                echo "export KUBECONFIG=\$HOME/.kube/config" >> ~/.bashrc
+                print_success "Added KUBECONFIG to ~/.bashrc"
+            fi
+            
+            export KUBECONFIG=$HOME/.kube/config
+        fi
+    fi
+
+    # Check and install Ansible if not available
+    print_success "Checking Ansible installation..."
+    if ! command -v ansible-playbook >/dev/null 2>&1; then
+        print_warning "Ansible not found. Installing Ansible..."
+        python3 -m pip install ansible --user
+        
+        # Verify Ansible installation
+        if command -v ansible-playbook >/dev/null 2>&1; then
+            print_success "Ansible installed successfully: $(ansible --version | head -1)"
+        else
+            print_error "Ansible installation failed"
+            exit 1
+        fi
+    else
+        print_success "Ansible is already installed: $(ansible --version | head -1)"
+    fi
+    
+    # Setup SSH keys for VMs
+    print_success "Setting up SSH keys for VMs..."
+    local key_name="kubevmkey"
+    local source_dir="virtualmachines/sshkeys"
+    local ssh_dir="$HOME/.ssh"
+    
+    # Create .ssh directory if it doesn't exist
+    mkdir -p "$ssh_dir"
+    
+    # Copy private key
+    if [[ -f "$source_dir/$key_name" ]]; then
+        echo "Copying private key: $key_name"
+        cp "$source_dir/$key_name" "$ssh_dir/$key_name"
+        chmod 600 "$ssh_dir/$key_name"
+        chown $USER:$USER "$ssh_dir/$key_name"
+        print_success "Private key copied to $ssh_dir/$key_name"
+    else
+        print_error "Private key not found: $source_dir/$key_name"
+        return 1
+    fi
+    
+    # Copy public key
+    if [[ -f "$source_dir/$key_name.pub" ]]; then
+        echo "Copying public key: $key_name.pub"
+        cp "$source_dir/$key_name.pub" "$ssh_dir/$key_name.pub"
+        chmod 644 "$ssh_dir/$key_name.pub"
+        chown $USER:$USER "$ssh_dir/$key_name.pub"
+        print_success "Public key copied to $ssh_dir/$key_name.pub"
+    else
+        print_error "Public key not found: $source_dir/$key_name.pub"
+        return 1
+    fi
+    
+    print_success "SSH keys setup completed!"
+    
+    print_success "Prerequisites installation completed!"
+    echo ""
+    echo "Installed components:"
+    echo "  - System packages: git, curl, wget, make, build-essential, jq, ansible"
+    echo "  - Go: $(go version 2>/dev/null || echo 'Not available in current session')"
+    echo "  - Docker: $(docker --version 2>/dev/null || echo 'Not available')"
+    echo "  - K3S: $(k3s --version 2>/dev/null | head -1 || echo 'Not available')"
+    echo "  - kubectl: $(kubectl version --client --short 2>/dev/null || echo 'Not available') (included with K3S)"
+    echo "  - Ansible: $(ansible --version 2>/dev/null | head -1 || echo 'Not available')"
+    echo "  - SSH keys: kubevmkey (required for VM access)"
+    echo ""
+    if groups $USER | grep -q docker; then
+        echo "✅ User is in docker group"
+    else
+        print_warning "  Please log out and log back in to use Docker without sudo"
+    fi
+    echo ""
+    print_success "You can now run: ./workflow.sh full-setup"
 }
 
 setup_registry() {
@@ -80,24 +311,34 @@ setup_registry() {
     echo -e "${BLUE}Deploying Docker Registry from repository/docker-registry.yaml...${NC}"
     kubectl apply -f repository/docker-registry.yaml
     
-    # Wait a moment for namespace to be created
-    echo -e "${BLUE}Waiting for namespace to be ready...${NC}"
-    kubectl wait --for=condition=Ready --timeout=30s namespace/docker-registry || true
+    # Wait for namespace to exist (not Ready condition, just existence)
+    echo -e "${BLUE}Waiting for namespace to be created...${NC}"
+    local max_wait=30
+    local elapsed=0
+    while [ $elapsed -lt $max_wait ]; do
+        if kubectl get namespace docker-registry >/dev/null 2>&1; then
+            print_success "Namespace docker-registry created"
+            break
+        fi
+        sleep 2
+        elapsed=$((elapsed + 2))
+    done
     
     # Now apply the persistent storage
     echo -e "${BLUE}Setting up persistent storage for registry...${NC}"
     kubectl apply -f repository/registry-storage.yaml
     
-    # Wait for registry to be ready
-    echo -e "${BLUE}Waiting for Docker Registry to be ready...${NC}"
-    kubectl wait --for=condition=Ready pods -l app=docker-registry -n docker-registry --timeout=180s || true
+    # Wait for registry pods to be ready
+    echo -e "${BLUE}Waiting for Docker Registry pods to be ready...${NC}"
+    kubectl wait --for=condition=Ready pod -l app=docker-registry -n docker-registry --timeout=180s || true
     
     # Check registry status
     echo -e "${BLUE}Checking Docker Registry deployment status...${NC}"
     kubectl get pods -n docker-registry
-
-    # Wait Until It starts
-    sleep 30
+    
+    # Additional wait for registry to fully start
+    echo -e "${BLUE}Waiting for registry service to be fully available...${NC}"
+    sleep 10
     
     print_success "Docker Registry setup completed"
     echo -e "${GREEN}Registry is available at: ${BLUE}http://$NODE_IP:30500${NC}"
@@ -180,7 +421,7 @@ push_custom_vm_image() {
         echo "      - Docker Registry is not running (run: ./workflow.sh setup-registry)"
         echo "      - Network connectivity issues"
         echo ""
-        echo "   📋 To push manually later:"
+        echo "      To push manually later:"
         echo "      docker tag ${LOCAL_IMAGE_NAME} ${REGISTRY_IMAGE_NAME}"
         echo "      docker push ${REGISTRY_IMAGE_NAME}"
     fi
@@ -201,7 +442,7 @@ push_operator() {
         echo "      - Docker Registry is not running (run: ./workflow.sh setup-registry)"
         echo "      - Network connectivity issues"
         echo ""
-        echo "   📋 To push manually later:"
+        echo "      To push manually later:"
         echo "      docker push ${FULL_IMAGE_NAME}"
     fi
     
@@ -580,6 +821,10 @@ install_cdi() {
 substitute_env_vars() {
     print_header "SUBSTITUTING ENVIRONMENT VARIABLES"
     
+    # Set PROJECT_ROOT to the current working directory (where the script is run from)
+    export PROJECT_ROOT=$(pwd)
+    print_success "PROJECT_ROOT set to: $PROJECT_ROOT"
+    
     # Create backup directory
     mkdir -p .backup
     
@@ -658,54 +903,8 @@ show_endpoints() {
     echo ""
 }
 
-setup_ssh_keys() {
-    print_header "SETTING UP SSH KEYS FOR VMs"
-    
-    local key_name="kubevmkey"
-    local source_dir="virtualmachines/sshkeys"
-    local ssh_dir="$HOME/.ssh"
-    
-    # Create .ssh directory if it doesn't exist
-    mkdir -p "$ssh_dir"
-    
-    # Copy private key
-    if [[ -f "$source_dir/$key_name" ]]; then
-        echo "Copying private key: $key_name"
-        cp "$source_dir/$key_name" "$ssh_dir/$key_name"
-        chmod 600 "$ssh_dir/$key_name"
-        chown $USER:$USER "$ssh_dir/$key_name"
-        print_success "Private key copied to $ssh_dir/$key_name"
-    else
-        print_error "Private key not found: $source_dir/$key_name"
-        return 1
-    fi
-    
-    # Copy public key
-    if [[ -f "$source_dir/$key_name.pub" ]]; then
-        echo "Copying public key: $key_name.pub"
-        cp "$source_dir/$key_name.pub" "$ssh_dir/$key_name.pub"
-        chmod 644 "$ssh_dir/$key_name.pub"
-        chown $USER:$USER "$ssh_dir/$key_name.pub"
-        print_success "Public key copied to $ssh_dir/$key_name.pub"
-    else
-        print_error "Public key not found: $source_dir/$key_name.pub"
-        return 1
-    fi
-    
-    # Show public key content
-    echo ""
-    echo "Public key content:"
-    cat "$ssh_dir/$key_name.pub"
-    echo ""
-    
-    print_success "SSH keys setup completed!"
-}
-
 create_vm() {
     print_header "CREATING VMs"
-    
-    # First, setup SSH keys for VMs
-    setup_ssh_keys
     
     # List of VM files to create
     local vm_files=(
@@ -791,20 +990,18 @@ create_vm() {
     
     echo ""
     echo "Step 2: Running Ansible playbook..."
-    if command -v ansible-playbook >/dev/null 2>&1; then
-        echo "Running Ansible playbook from: $(pwd)/ansible"
-        echo "Using inventory: inventory"
-        echo ""
-        (cd ansible && ansible-playbook configure-vms.yml)
-    else
-        print_error "ansible-playbook not found. Install with: pip3 install ansible"
-        exit 1
-    fi
+    echo "Running Ansible playbook from: $(pwd)/ansible"
+    echo "Using inventory: inventory"
+    echo ""
+    (cd ansible && ansible-playbook configure-vms.yml)
     
     print_success "VM creation and configuration completed!"
 }
 
 case "${1:-help}" in
+    install-prerequisites)
+        install_prerequisites
+    ;;
     setup-kubevirt)
         install_kubevirt
         ;;
@@ -851,23 +1048,77 @@ case "${1:-help}" in
         ;;
     full-setup)
         print_header "COMPLETE SETUP WORKFLOW"
+        echo "This will perform a complete setup from scratch..."
+        echo ""
+        
+        # Step 1: Install prerequisites
+        install_prerequisites
+        echo ""
+        print_success "Step 1/10: Prerequisites installed"
+        
+        # Step 2: Show detected endpoints
         show_endpoints
+        echo ""
+        print_success "Step 2/10: IP detection completed"
+        
+        # Step 3: Update system configurations
         update_system_configs
+        echo ""
+        print_success "Step 3/10: System configurations updated"
+        
+        # Step 4: Install KubeVirt
         install_kubevirt
+        echo ""
+        print_success "Step 4/10: KubeVirt installed"
         sleep 180
+        
+        # Step 5: Install CDI
         install_cdi
+        echo ""
+        print_success "Step 5/10: CDI installed"
         sleep 30
+        
+        # Step 6: Setup Docker Registry
         setup_registry
+        echo ""
+        print_success "Step 6/10: Docker Registry setup completed"
         sleep 30
+        
+        # Step 7: Build and push operator
         build_operator
         push_operator
+        echo ""
+        print_success "Step 7/10: Operator built and pushed"
+        
+        # Step 8: Deploy operator
         make install
         make deploy
+        echo ""
+        print_success "Step 8/10: Operator deployed"
+        
+        # Step 9: Deploy Guacamole stack
         deploy_stack
+        echo ""
+        print_success "Step 9/10: Guacamole stack deployed"
+        
+        # Step 10: Deploy monitoring
         deploy_monitoring
+        echo ""
+        print_success "Step 10/10: Monitoring stack deployed"
+        
         print_header "SETUP COMPLETE!"
+        echo "Full setup completed successfully!"
+        echo ""
         show_endpoints
+        echo ""
         show_status
+        echo ""
+        print_success "You can now:"
+        echo "  - Access Guacamole at: http://$NODE_IP:30080/guacamole/"
+        echo "  - Access Keycloak at: http://$NODE_IP:30081/"
+        echo "  - Access Grafana at: http://$NODE_IP:30300 (admin/admin)"
+        echo "  - Access Prometheus at: http://$NODE_IP:30090"
+        echo "  - Create VMs with: ./workflow.sh create-vm"
         ;;
     detect-ip)
         show_endpoints
@@ -875,9 +1126,6 @@ case "${1:-help}" in
     update-configs)
         substitute_env_vars
         update_system_configs
-        ;;
-    setup-ssh-keys)
-        setup_ssh_keys
         ;;
     create-vm)
         create_vm
@@ -894,15 +1142,10 @@ case "${1:-help}" in
         
         echo ""
         echo "Step 2: Running Ansible playbook..."
-        if command -v ansible-playbook >/dev/null 2>&1; then
-            echo "Running Ansible playbook from: $(pwd)/ansible"
-            echo "Using inventory: inventory"
-            echo ""
-            (cd ansible && ansible-playbook configure-vms.yml)
-        else
-            print_error "ansible-playbook not found. Install with: pip3 install ansible"
-            exit 1
-        fi
+        echo "Running Ansible playbook from: $(pwd)/ansible"
+        echo "Using inventory: inventory"
+        echo ""
+        (cd ansible && ansible-playbook configure-vms.yml)
         ;;
     list-vms)
         print_header "LISTING AVAILABLE VMs"

@@ -41,15 +41,15 @@ spec:
             - name: REGISTRY_HTTP_ADDR
               value: "0.0.0.0:5000"
             - name: REGISTRY_HTTP_HEADERS_ACCESS-CONTROL-ALLOW-ORIGIN
-              value: "[http://192.168.1.4:30501]"
+              value: "['*']"
             - name: REGISTRY_HTTP_HEADERS_ACCESS-CONTROL-ALLOW-METHODS
-              value: "[HEAD,GET,OPTIONS,DELETE]"
+              value: "['HEAD','GET','OPTIONS','DELETE']"
             - name: REGISTRY_HTTP_HEADERS_ACCESS-CONTROL-ALLOW-CREDENTIALS
-              value: "[true]"
+              value: "['true']"
             - name: REGISTRY_HTTP_HEADERS_ACCESS-CONTROL-ALLOW-HEADERS
-              value: "[Authorization,Accept,Cache-Control]"
+              value: "['Authorization','Accept','Cache-Control']"
             - name: REGISTRY_HTTP_HEADERS_ACCESS-CONTROL-EXPOSE-HEADERS
-              value: "[Docker-Content-Digest]"
+              value: "['Docker-Content-Digest']"
           volumeMounts:
             - name: registry-data
               mountPath: /var/lib/registry
@@ -125,7 +125,7 @@ spec:
             - name: REGISTRY_TITLE
               value: "VM Watcher Registry"
             - name: REGISTRY_URL
-              value: "http://192.168.1.4:30500"
+              value: "http://${NODE_IP}:30500"
             - name: DELETE_IMAGES
               value: "true"
             - name: SHOW_CONTENT_DIGEST

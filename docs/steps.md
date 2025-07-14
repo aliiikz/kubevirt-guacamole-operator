@@ -107,11 +107,11 @@ Add the following content:
 
 ```yaml
 mirrors:
-  "192.168.1.4:30500":
+  "${NODE_IP}:30500":
     endpoint:
-      - "http://192.168.1.4:30500"
+      - "http://${NODE_IP}:30500"
 configs:
-  "192.168.1.4:30500":
+  "${NODE_IP}:30500":
     tls:
       insecure_skip_verify: true
 ```

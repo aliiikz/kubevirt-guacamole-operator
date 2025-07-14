@@ -47,7 +47,7 @@ Deploy everything with a single command:
 git clone <repository-url>
 cd kubevirt-guacamole-operator
 
-# Complete automated deployment (automatically detects IP)
+# Install prerequisites and complete automated deployment
 ./workflow.sh full-setup
 
 # Create and configure VMs
@@ -62,44 +62,58 @@ cd kubevirt-guacamole-operator
 
 **What you get:**
 
-- ✅ KubeVirt virtual machines with web-based remote access
-- ✅ Apache Guacamole for RDP/VNC connections
-- ✅ Keycloak for identity management
-- ✅ Private container registry
-- ✅ Prometheus & Grafana monitoring
-- ✅ Automatic IP detection and configuration
-- ✅ Automated VM creation and configuration with Ansible
+- Complete prerequisites installation (Go, Docker, K3S, Ansible, SSH keys)
+- KubeVirt virtual machines with web-based remote access
+- Apache Guacamole for RDP/VNC connections
+- Keycloak for identity management and SSO
+- Private container registry for custom images
+- Prometheus & Grafana monitoring stack
+- Automatic IP detection and dynamic path configuration
+- Automated VM creation and configuration with Ansible
 
 ## Prerequisites
 
-### Required Kubernetes Components
+The workflow script automatically installs all prerequisites, including:
+
+### System Requirements
+
+- **Ubuntu/Debian-based Linux** (tested on Ubuntu 20.04+)
+- **sudo privileges** for package installation
+- **Internet connection** for downloading packages and images
+
+### Automatically Installed Components
+
+- **K3S Kubernetes** - Lightweight Kubernetes distribution with kubectl
+- **Docker** - Container runtime and image building
+- **Go 1.21.5** - For building the operator
+- **Ansible** - For automated VM configuration
+- **SSH keys** - Required for VM access (kubevmkey)
+- **System packages** - git, curl, wget, make, build-essential, jq
+
+### Kubernetes Components (Auto-installed)
 
 - **KubeVirt** - Virtual machine management
 - **CDI** (Containerized Data Importer) - For VM disk image handling
-- **Local Path Provisioner** - For persistent storage (default in K3s)
+- **Local Path Provisioner** - For persistent storage (included with K3S)
 
-### Optional Components (for VM Configuration)
+### Required Components
 
-- **Ansible** - For automated VM configuration (installed automatically if needed)
-- **jq** - For JSON processing in scripts
-- **SSH key pair** - For VM access (default: `~/.ssh/kubevmkey`)
+- **SSH key pair** - For VM access (kubevmkey is automatically set up)
 
-> **Note**: The workflow script will automatically install Ansible if it's not present when using `create-vm` or `configure-vms` commands.
-
-> **Important**: KubeVirt and CDI are automatically installed by the workflow script. Manual installation instructions are provided in the [Manual Setup](#manual-setup) section.
+> **Note**: All prerequisites including SSH keys are automatically installed by running `./workflow.sh install-prerequisites`.
 
 ## Installation
 
 ### Automated Setup
 
-The recommended easy approach is using the workflow script:
+The easiest approach is using the complete workflow script:
 
 ```bash
 # Clone the repository
 git clone <repository-url>
 cd kubevirt-guacamole-operator
 
-# Complete setup (installs all dependencies)
+# Complete setup (installs all dependencies and deploys everything)
 ./workflow.sh full-setup
 
 # Monitor deployment progress
@@ -108,14 +122,13 @@ watch kubectl get pods --all-namespaces
 
 **What this does:**
 
-1. Detects and configures IP addresses (automatically)
-2. Installs KubeVirt and CDI
-3. Configures insecure registry settings
-4. Deploys container registry with persistent storage
-5. Builds and pushes operator image
-6. Installs CRDs and deploys operator
-7. Deploys Guacamole stack (Guacamole + PostgreSQL + Keycloak)
-8. Sets up monitoring stack (Prometheus + Grafana)
+1. **Installs Prerequisites** - K3S, Docker, Go, Ansible, SSH keys, and required packages
+2. **Detects IP and configures** - Automatically detects node IP and updates configurations
+3. **Installs KubeVirt and CDI** - Sets up virtual machine management
+4. **Configures container registry** - Sets up private Docker registry with insecure registry settings
+5. **Builds and deploys operator** - Compiles, pushes, and deploys the KubeVirt operator
+6. **Deploys Guacamole stack** - Sets up Guacamole, PostgreSQL, and Keycloak with dynamic paths
+7. **Deploys monitoring** - Sets up Prometheus and Grafana for system monitoring
 
 ### Manual Setup
 
@@ -128,28 +141,43 @@ First, configure your environment with the correct IP addresses:
 ```bash
 # Detect current IP and show endpoints
 ./workflow.sh detect-ip
-
-# Update all configuration files with current IP
-./workflow.sh update-configs
 ```
-
-> This step is **critical** - it must be done before deploying any components, otherwise they will be configured with incorrect IP addresses.
 
 #### 2. Install Prerequisites
 
-**Install KubeVirt:**
+Install all required softwares:
+
+```bash
+./workflow.sh install-prerequisites
+```
+
+This installs: K3S (with kubectl), Docker, Go, Ansible, SSH keys (kubevmkey), and required system packages.
+
+#### 3. Configure Environment
+
+Update all configuration files with current IP and paths:
+
+```bash
+./workflow.sh update-configs
+```
+
+> These steps are **critical** - it must be done before deploying any components, otherwise they will be configured with incorrect IP addresses.
+
+#### 4. Install Kubernetes Components
+
+Install KubeVirt:
 
 ```bash
 ./workflow.sh setup-kubevirt
 ```
 
-**Install CDI (Containerized Data Importer):**
+Install CDI (Containerized Data Importer):
 
 ```bash
 ./workflow.sh setup-cdi
 ```
 
-#### 3. Deploy Components
+#### 5. Deploy Application Components
 
 ```bash
 # Deploy container registry
@@ -169,20 +197,11 @@ First, configure your environment with the correct IP addresses:
 ./workflow.sh monitoring
 ```
 
-#### 4. Configuring Keycloak Integration
+#### 6. Configuring Keycloak Integration
 
 After deployment, configure Keycloak to enable SSO with Guacamole:
 
 **Step 1: Access Keycloak Admin Console**
-
-```bash
-# Get your node IP
-./workflow.sh detect-ip
-
-# Navigate to Keycloak admin console
-# URL: http://<node-ip>:30081/
-# Default credentials: admin/admin
-```
 
 **Step 2: Create a New Realm**
 
@@ -228,23 +247,11 @@ Replace `<node-ip>` with your actual node IP:
 
 The project automatically detects your node IP address, eliminating the need for manual configuration when moving between different environments.
 
-#### How It Works
-
-1. **IP Detection**: The system automatically detects your current node IP using `hostname -I`
-2. **Environment Variables**: All configurations use environment variables that are automatically populated
-3. **System Configuration**: Docker and K3s configurations are updated automatically
-
 > **Important**: IP detection and configuration must be done **before** deploying any components. Components deployed with incorrect IP addresses will not function properly.
 
-#### Usage
+### Dynamic Path Resolution
 
-```bash
-# Detect current IP and show endpoints
-./workflow.sh detect-ip
-
-# Update all configuration files with current IP
-./workflow.sh update-configs
-```
+The project now automatically handles path configurations, making it portable across different machines and user setups.
 
 #### Manual Environment Configuration
 
@@ -281,7 +288,7 @@ The following environment variables are automatically detected and can be overri
 The easiest way to create and configure VMs is using the automated workflow:
 
 ```bash
-# Copies the SSH keys to the user .ssh directory and creates VMs and automatically configure them with Ansible
+# Creates VMs and automatically configure them with Ansible (SSH keys must be already set up via install-prerequisites)
 ./workflow.sh create-vm
 
 # List available VMs
@@ -293,10 +300,10 @@ The easiest way to create and configure VMs is using the automated workflow:
 
 **What `create-vm` does:**
 
-1. ✅ Creates VMs from YAML files (`dv_ubuntu1.yml`, `vm1_pvc.yml`, `dv_ubuntu2.yml`, `vm2_pvc.yml`)
-2. ✅ Waits for VMs to be ready and get IP addresses
-3. ✅ Automatically discovers VM IPs and populates Ansible inventory
-4. ✅ Runs Ansible playbook to configure VMs with:
+1. Creates VMs from YAML files (`dv_ubuntu1.yml`, `vm1_pvc.yml`, `dv_ubuntu2.yml`, `vm2_pvc.yml`)
+2. Waits for VMs to be ready and get IP addresses
+3. Automatically discovers VM IPs and populates Ansible inventory
+4. Runs Ansible playbook to configure VMs with:
    - System package updates
    - Essential tools (curl, wget, git, vim, htop, net-tools)
    - Executes `install_services.sh` if present in `/home/ubuntu/`
@@ -358,7 +365,7 @@ kubectl create -f virtualmachines/vm1_pvc.yml
 ```bash
 # Check VM status
 kubectl get virtualmachine
-kubectl get vmi  # VirtualMachineInstance (running VMs)
+kubectl get vmi
 
 # Check VM launcher pods (these are the actual VM pods)
 kubectl get pods -l kubevirt.io/domain
@@ -368,101 +375,14 @@ kubectl get virtualmachine ubuntu1-vm -o yaml | grep -A 5 "guacamole"
 ```
 
 3. **Access via Guacamole:**
-   - Navigate to `http://<node-ip>:30080/guacamole/`
-   - Login via Keycloak (admin/admin) or directly with Guacamole credentials
-   - VMs will appear automatically in the connection list
 
-### Custom VM Scripts
-
-You can include custom installation scripts that will be automatically executed:
-
-1. **Create your script**: Place `install_services.sh` in the VM's `/home/ubuntu/` directory
-2. **Make it executable**: The Ansible playbook will automatically make it executable
-3. **Automatic execution**: The script will be run during VM configuration
-
-Example `install_services.sh`:
-
-```bash
-#!/bin/bash
-# Custom VM setup script
-
-# Install Docker
-curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker ubuntu
-
-# Install additional tools
-sudo apt update
-sudo apt install -y htop tree jq
-
-# Configure services
-sudo systemctl enable docker
-sudo systemctl start docker
-
-echo "Custom VM setup completed!"
-```
+- Navigate to `http://<node-ip>:30080/guacamole/`
+- Login via Keycloak (admin/admin) or directly with Guacamole credentials
+- VMs will appear automatically in the connection list
 
 ### Supported Protocols
 
 The operator supports **RDP** and **VNC** protocols for remote access to VMs.
-
-### Workflow Commands
-
-The `workflow.sh` script provides comprehensive automation for the entire lifecycle:
-
-#### Setup Commands
-
-```bash
-./workflow.sh detect-ip          # Show detected IP addresses and endpoints
-./workflow.sh update-configs     # Update configuration files with current IP
-./workflow.sh setup-kubevirt     # Setup KubeVirt (required for VMs)
-./workflow.sh setup-cdi          # Setup CDI (required for VMs)
-./workflow.sh setup-registry     # Setup Docker Registry
-./workflow.sh full-setup         # Complete automated setup
-```
-
-#### Build and Deploy Commands
-
-```bash
-./workflow.sh build-operator     # Build operator image
-./workflow.sh push-operator      # Build and push operator to registry
-./workflow.sh deploy             # Deploy operator (installs CRDs)
-./workflow.sh deploy-stack       # Deploy Guacamole stack
-./workflow.sh monitoring         # Deploy monitoring stack
-./workflow.sh push-custom-vm     # Build and push custom Ubuntu image
-```
-
-#### VM Management Commands
-
-```bash
-./workflow.sh create-vm          # Create VMs and configure them with Ansible
-./workflow.sh configure-vms      # Configure existing VMs using Ansible
-./workflow.sh list-vms           # List available VMs and their IPs
-```
-
-#### Maintenance Commands
-
-```bash
-./workflow.sh status             # Show status of all components
-./workflow.sh cleanup-monitoring # Clean up monitoring stack
-./workflow.sh cleanup-all        # COMPLETE CLEANUP - Reset cluster
-./workflow.sh force-clean-ns     # Force clean stuck namespaces
-```
-
-### Managing VMs
-
-```bash
-# Start VM
-kubectl patch virtualmachine ubuntu1-vm --type merge -p '{"spec":{"running":true}}'
-
-# Stop VM
-kubectl patch virtualmachine ubuntu1-vm --type merge -p '{"spec":{"running":false}}'
-
-# Delete VM (IMPORTANT: Delete in correct order to clean up Guacamole connections)
-kubectl delete virtualmachine ubuntu1-vm    # Delete VM first
-kubectl delete datavolume ubuntu1-dv        # Then delete DataVolume
-```
-
-> **Important**: Always delete the VirtualMachine before deleting the DataVolume. The operator needs the VM object with its connection ID annotation to properly clean up the Guacamole connection.
 
 ## Access Points
 
@@ -518,7 +438,9 @@ The monitoring stack provides comprehensive observability:
 
 ### Grafana Dashboards
 
-Access pre-configured dashboards at `http://<node-ip>:30300`:
+Import the dashboard file from `monitoring/dashboard/trafficcomparisondashboard.json`
+
+Access dashboards at `http://<node-ip>:30300`:
 
 1. **KubeVirt VMs Dashboard**: VM performance and status
 2. **Operator Dashboard**: Operator health and metrics
@@ -558,14 +480,60 @@ kubectl get vm,vmi,dv,pvc
 ./workflow.sh cleanup-all && ./workflow.sh full-setup
 ```
 
+### Managing VMs
+
+```bash
+# Start VM
+kubectl patch virtualmachine ubuntu1-vm --type merge -p '{"spec":{"running":true}}'
+
+# Stop VM
+kubectl patch virtualmachine ubuntu1-vm --type merge -p '{"spec":{"running":false}}'
+
+
+# Check VM boot and SSH readiness
+kubectl get vmi <vm-name> -o jsonpath='{.status.phase}'
+kubectl get vmi <vm-name> -o jsonpath='{.status.interfaces[0].ipAddress}'
+
+# Delete VM (IMPORTANT: Delete in correct order to clean up Guacamole connections)
+kubectl delete virtualmachine ubuntu1-vm    # Delete VM first
+kubectl delete datavolume ubuntu1-dv        # Then delete DataVolume
+```
+
+> **Important**: Always delete the VirtualMachine before deleting the DataVolume. The operator needs the VM object with its connection ID annotation to properly clean up the Guacamole connection.
+
+### SSH Key Requirements
+
+**Important**: The `kubevmkey` SSH key is **required** for VM access and is automatically set up during prerequisites installation:
+
+```bash
+# SSH keys are installed automatically during prerequisites
+./workflow.sh install-prerequisites
+```
+
+The SSH keys are copied to `~/.ssh/kubevmkey` and `~/.ssh/kubevmkey.pub` and are **essential** for:
+
+- VM SSH access
+- Ansible configuration
+- Administrative tasks on VMs
+
+To manually verify SSH key setup:
+
+```bash
+# Check if SSH keys exist
+ls -la ~/.ssh/kubevmkey*
+
+# Test SSH connection to VM
+ssh -i ~/.ssh/kubevmkey ubuntu@<vm-ip>
+```
+
 ### VM and Ansible Troubleshooting
 
 ```bash
 # Check VM connectivity
 kubectl get vmi -o wide
 
-# Test VM SSH connectivity
-ssh ubuntu@<vm-ip>
+# Test VM SSH connectivity (requires kubevmkey to be set up)
+ssh -i ~/.ssh/kubevmkey ubuntu@<vm-ip>
 
 # Check Ansible inventory
 cat ansible/inventory
@@ -580,31 +548,7 @@ cd ansible && ansible-playbook configure-vms.yml -v
 ./scripts/populate-inventory.sh
 cd ansible && ansible all -m ping
 
-# Check VM boot and SSH readiness
-kubectl get vmi <vm-name> -o jsonpath='{.status.phase}'
-kubectl get vmi <vm-name> -o jsonpath='{.status.interfaces[0].ipAddress}'
 ```
-
-### Common Issues
-
-**VMs not getting IP addresses:**
-
-- Check if VMs are in "Running" phase: `kubectl get vmi`
-- Verify cloud-init is working: `kubectl logs <vm-launcher-pod>`
-- Check network configuration in VM YAML files
-
-**Ansible connection failures:**
-
-- Ensure SSH key exists: `ls -la ~/.ssh/kubevmkey*`
-- Check VM SSH service: `ssh ubuntu@<vm-ip>`
-- Verify inventory file: `cat ansible/inventory`
-- VMs may take time to boot - wait 2-3 minutes after VM creation
-
-**VM creation fails:**
-
-- Check KubeVirt and CDI status: `./workflow.sh status`
-- Verify sufficient resources: `kubectl describe nodes`
-- Check DataVolume import: `kubectl get dv -o wide`
 
 ## Known Limitations
 
@@ -624,27 +568,3 @@ After a VM connection is automatically created:
 3. Select the auto-created connection
 4. Click "Permissions" tab
 5. Manually add users or groups with appropriate permissions
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## License
-
-Copyright 2025.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.

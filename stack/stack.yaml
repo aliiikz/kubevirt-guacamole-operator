@@ -140,7 +140,7 @@ spec:
             claimName: guacamole-db-pvc
         - name: init-scripts
           hostPath:
-            path: /home/aliii/Github/kubevirt-guacamole-operator/stack/db/init
+            path: ${PROJECT_ROOT}/stack/db/init
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -193,10 +193,10 @@ spec:
             name: guacamole-config
         - name: quickconnect-extension
           hostPath:
-            path: /home/aliii/Github/kubevirt-guacamole-operator/stack/guacamole/extensions
+            path: ${PROJECT_ROOT}/stack/guacamole/extensions
         - name: jdbc-lib
           hostPath:
-            path: /home/aliii/Github/kubevirt-guacamole-operator/stack/guacamole/lib
+            path: ${PROJECT_ROOT}/stack/guacamole/lib
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -218,7 +218,7 @@ spec:
           image: quay.io/keycloak/keycloak:24.0.4
           args:
             - start-dev
-            - --hostname-url=http://192.168.1.4:30081
+            - --hostname-url=http://${NODE_IP}:30081
             - --hostname-strict=false
           env:
             - name: KEYCLOAK_ADMIN
@@ -243,7 +243,7 @@ spec:
       volumes:
         - name: keycloak-providers
           hostPath:
-            path: /home/aliii/Github/kubevirt-guacamole-operator/stack/keycloak/providers
+            path: ${PROJECT_ROOT}/stack/keycloak/providers
 ---
 apiVersion: v1
 kind: Service

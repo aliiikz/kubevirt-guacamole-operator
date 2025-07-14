@@ -17,7 +17,7 @@ namePrefix: kubebuilderproject-
 # Image replacement for registry
 images:
   - name: vm-watcher
-    newName: 192.168.1.4:30500/vm-watcher
+    newName: ${NODE_IP}:30500/vm-watcher
     newTag: latest
 
 resources:
