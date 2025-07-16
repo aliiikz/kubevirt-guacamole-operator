@@ -29,8 +29,9 @@ spec:
             - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
             - "--collector.netclass.ignored-devices=^(veth.*|cali.*|docker.*|lo)$$"
             - "--collector.netdev.device-exclude=^(veth.*|cali.*|docker.*|lo)$$"
+            - "--web.listen-address=:9200"
           ports:
-            - containerPort: 9100
+            - containerPort: 9200
               hostPort: 9200
           resources:
             requests:
@@ -76,6 +77,6 @@ spec:
   clusterIP: None
   ports:
     - port: 9200
-      targetPort: 9100
+      targetPort: 9200
   selector:
     app: node-exporter

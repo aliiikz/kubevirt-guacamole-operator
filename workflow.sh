@@ -188,6 +188,7 @@ install_prerequisites() {
         mkdir -p $HOME/.kube
         
         # Copy the kubeconfig file
+        sudo chmod 755 /etc/rancher/k3s/k3s.yaml
         sudo cp /etc/rancher/k3s/k3s.yaml $HOME/.kube/config
         sudo chown $USER:$USER $HOME/.kube/config
         
