@@ -41,7 +41,7 @@ This operator provides:
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone https://github.com/aliiikz/kubevirt-guacamole-operator.git
 cd kubevirt-guacamole-operator
 
 # Install prerequisites and complete automated deployment
