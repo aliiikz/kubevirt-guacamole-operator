@@ -881,6 +881,15 @@ create_vm() {
     
     print_success "VMs created successfully!"
     
+    # Wait for SSH to be available on all VMs before running Ansible
+    for ip in $VM_IPS; do
+      echo "Waiting for SSH on $ip..."
+      until ssh -i ~/.ssh/kubevmkey -o StrictHostKeyChecking=no -o ConnectTimeout=5 ubuntu@$ip 'echo SSH is up' 2>/dev/null; do
+        sleep 5
+      done
+      echo "SSH is up on $ip"
+    done
+
     # Now configure VMs with Ansible
     echo ""
     print_header "CONFIGURING VMs WITH ANSIBLE"
