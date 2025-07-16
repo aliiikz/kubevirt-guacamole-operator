@@ -55,7 +55,7 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster
 	$(KUSTOMIZE) build config/crd | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
 
 .PHONY: deploy
-deploy: install manifests kustomize ## Deploy controller to the K8s cluster using registry image (installs CRDs first)
+deploy: install manifests kustomize ## Deploy controller to the K8s cluster using custom operator image (installs CRDs first)
 	$(KUSTOMIZE) build config/default | kubectl apply -f -
 
 .PHONY: undeploy

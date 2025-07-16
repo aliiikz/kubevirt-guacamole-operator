@@ -13,7 +13,6 @@ This operator provides:
 - **Integrated Remote Access**: Apache Guacamole web-based remote desktop access for VMs
 - **Identity Management**: Keycloak integration for SSO and user authentication
 - **Monitoring Stack**: Prometheus and Grafana for comprehensive monitoring
-- **Container Registry**: Private Docker registry for custom images
 - **Automated Workflows**: Scripts for easy deployment and management
 
 ## Architecture
@@ -40,8 +39,6 @@ This operator provides:
 
 ## Quick Start
 
-Deploy everything with a single command:
-
 ```bash
 # Clone the repository
 git clone <repository-url>
@@ -66,7 +63,6 @@ cd kubevirt-guacamole-operator
 - KubeVirt virtual machines with web-based remote access
 - Apache Guacamole for RDP/VNC connections
 - Keycloak for identity management and SSO
-- Private container registry for custom images
 - Prometheus & Grafana monitoring stack
 - Automatic IP detection and dynamic path configuration
 - Automated VM creation and configuration with Ansible
@@ -77,7 +73,7 @@ The workflow script automatically installs all prerequisites, including:
 
 ### System Requirements
 
-- **Ubuntu/Debian-based Linux** (tested on Ubuntu 20.04+)
+- **Ubuntu/Debian-based Linux** (tested on Ubuntu 22.04+)
 - **sudo privileges** for package installation
 - **Internet connection** for downloading packages and images
 
@@ -104,31 +100,42 @@ The workflow script automatically installs all prerequisites, including:
 
 ## Installation
 
-### Automated Setup
+These scripts will:
 
-The easiest approach is using the complete workflow script:
+- Complete prerequisites installation (Go, Docker, K3S, Ansible, SSH keys)
+- KubeVirt virtual machines with web-based remote access
+- Apache Guacamole for RDP/VNC connections
+- Keycloak for identity management and SSO
+- Prometheus & Grafana monitoring stack
+- Automatic IP detection and dynamic path configuration
+- Automated VM creation and configuration with Ansible
+
+> **Note**: Don't use a directory name with spaces like "New Folder", instead use "NewFolder"
+
+### Automated Setup (Quick Start)
+
+The easiest approach is using the complete workflow script. You can deploy everything with a couple of commands:
 
 ```bash
 # Clone the repository
 git clone <repository-url>
 cd kubevirt-guacamole-operator
 
-# Complete setup (installs all dependencies and deploys everything)
+# Install prerequisites and complete automated deployment
 ./workflow.sh full-setup
+
+# Create and configure VMs
+./workflow.sh create-vm
+
+# Check deployment status
+./workflow.sh status
+
+# View detected endpoints
+./workflow.sh detect-ip
 
 # Monitor deployment progress
 watch kubectl get pods --all-namespaces
 ```
-
-**What this does:**
-
-1. **Installs Prerequisites** - K3S, Docker, Go, Ansible, SSH keys, and required packages
-2. **Detects IP and configures** - Automatically detects node IP and updates configurations
-3. **Installs KubeVirt and CDI** - Sets up virtual machine management
-4. **Builds and loads operator** - Compiles and loads the operator image directly into K3s
-5. **Deploys operator** - Installs CRDs and deploys the operator
-6. **Deploys Guacamole stack** - Sets up Guacamole, PostgreSQL, and Keycloak
-7. **Deploys monitoring** - Sets up Prometheus and Grafana for system monitoring
 
 ### Manual Setup
 
@@ -194,48 +201,6 @@ Install CDI (Containerized Data Importer):
 ./workflow.sh monitoring
 ```
 
-#### 6. Configuring Keycloak Integration
-
-After deployment, configure Keycloak to enable SSO with Guacamole:
-
-**Step 1: Access Keycloak Admin Console**
-
-**Step 2: Create a New Realm**
-
-1. Click **"Create realm"** in the top-left dropdown
-2. Set **Realm name**: `GuacamoleRealm`
-3. Click **"Create"**
-
-**Step 3: Configure Guacamole Client**
-
-1. In the new realm, go to **Clients** → **Create client**
-2. **Client ID**: `guacamole`
-3. Click **"Next"**
-4. **Authentication flow**: Check **"Implicit flow"**
-5. Click **"Next"**
-
-**Step 4: Configure Client URLs**
-Replace `<node-ip>` with your actual node IP:
-
-- **Root URL**: `http://<node-ip>:30080/guacamole/`
-- **Home URL**: `http://<node-ip>:30080/guacamole/`
-- **Valid redirect URIs**: `http://<node-ip>:30080/guacamole/*`
-- **Web origins**: `http://<node-ip>:30080/guacamole/`
-
-**Step 5: Create Users**
-
-1. Go to **Users** → **Create new user**
-2. Set **Username** (e.g., `testuser`)
-3. Set **First name** and **Last name**
-4. Click **"Create"**
-5. Go to **Credentials** tab → **Set password**
-
-**Step 6: Test SSO Login**
-
-1. Logout from Guacamole
-2. You should now see **"Login with OpenID Connect"** option
-3. Click it to login via Keycloak with your created user
-
 > **Note**: After SSO is configured, VM connections created by the operator will not be accessible to newly created user who logged-in via Keycloak. You need to manually assign permissions for specific connections (Setting->Connections) through the Guacamole admin interface .
 
 ## Configuration
@@ -260,7 +225,6 @@ source .env
 
 # Or set specific variables
 export NODE_IP=192.168.1.100
-export REGISTRY_PORT=30500
 ```
 
 ### Environment Variables
@@ -270,7 +234,6 @@ The following environment variables are automatically detected and can be overri
 | Variable          | Auto-Detected | Description                       |
 | ----------------- | ------------- | --------------------------------- |
 | `NODE_IP`         | ✓             | IP address of the Kubernetes node |
-| `REGISTRY_PORT`   | 30500         | Port for the container registry   |
 | `GUACAMOLE_PORT`  | 30080         | Port for Guacamole web interface  |
 | `KEYCLOAK_PORT`   | 30081         | Port for Keycloak admin interface |
 | `GRAFANA_PORT`    | 30300         | Port for Grafana dashboard        |
@@ -303,10 +266,9 @@ The easiest way to create and configure VMs is using the automated workflow:
 4. Runs Ansible playbook to configure VMs with:
    - System package updates
    - Essential tools (curl, wget, git, vim, htop, net-tools)
-   - Executes `install_services.sh` if present in `/home/ubuntu/`
-   - Creates completion marker at `/home/ubuntu/.vm-configured`
+   - Configures services for RDP and VNC with Ansible
 
-#### VM Configuration with Ansible
+##### VM Configuration with Ansible
 
 The project includes a simplified Ansible setup for post-deployment VM configuration:
 
@@ -374,7 +336,7 @@ kubectl get virtualmachine ubuntu1-vm -o yaml | grep -A 5 "guacamole"
 3. **Access via Guacamole:**
 
 - Navigate to `http://<node-ip>:30080/guacamole/`
-- Login via Keycloak (admin/admin) or directly with Guacamole credentials
+- Login via Keycloak (admin/admin) or directly with Guacamole credentials (guacadmin/guacadmin)
 - VMs will appear automatically in the connection list
 
 ### Supported Protocols
@@ -385,14 +347,12 @@ The operator supports **RDP** and **VNC** protocols for remote access to VMs.
 
 Once deployed, you can access the following services:
 
-| Service         | URL                                 | Credentials         |
-| --------------- | ----------------------------------- | ------------------- |
-| **Guacamole**   | `http://<node-ip>:30080/guacamole/` | guacadmin/guacadmin |
-| **Keycloak**    | `http://<node-ip>:30081/`           | admin/admin         |
-| **Grafana**     | `http://<node-ip>:30300/`           | admin/admin         |
-| **Prometheus**  | `http://<node-ip>:30090/`           | -                   |
-| **Registry**    | `http://<node-ip>:30500/`           | -                   |
-| **Registry UI** | `http://<node-ip>:30501/`           | -                   |
+| Service        | URL                                 | Credentials         |
+| -------------- | ----------------------------------- | ------------------- |
+| **Guacamole**  | `http://<node-ip>:30080/guacamole/` | guacadmin/guacadmin |
+| **Keycloak**   | `http://<node-ip>:30081/`           | admin/admin         |
+| **Grafana**    | `http://<node-ip>:30300/`           | admin/admin         |
+| **Prometheus** | `http://<node-ip>:30090/`           | -                   |
 
 > **Note**: Replace `<node-ip>` with your actual node IP address. Use `./workflow.sh detect-ip` to see your current endpoints.
 
@@ -400,13 +360,12 @@ Once deployed, you can access the following services:
 
 ### Core Components
 
-| Component      | Namespace                   | Purpose                        | Port        |
-| -------------- | --------------------------- | ------------------------------ | ----------- |
-| **Operator**   | `kubebuilderproject-system` | VM lifecycle management        | -           |
-| **Guacamole**  | `guacamole`                 | Web-based remote desktop       | 30080       |
-| **Keycloak**   | `guacamole`                 | Identity and access management | 30081       |
-| **PostgreSQL** | `guacamole`                 | Database for Guacamole         | -           |
-| **Registry**   | `docker-registry`           | Container image storage        | 30500/30501 |
+| Component      | Namespace                   | Purpose                        | Port  |
+| -------------- | --------------------------- | ------------------------------ | ----- |
+| **Operator**   | `kubebuilderproject-system` | VM lifecycle management        | -     |
+| **Guacamole**  | `guacamole`                 | Web-based remote desktop       | 30080 |
+| **Keycloak**   | `guacamole`                 | Identity and access management | 30081 |
+| **PostgreSQL** | `guacamole`                 | Database for Guacamole         | -     |
 
 ### Monitoring Components
 
@@ -435,7 +394,9 @@ The monitoring stack provides comprehensive observability:
 
 ### Grafana Dashboards
 
-Import the dashboard file from `monitoring/dashboard/trafficcomparisondashboard.json`
+#### Dashboard
+
+The dashboard is automatically imported. The file for the dashboard is placed in the `monitoring/dashboard/trafficcomparisondashboard.json`.
 
 Access dashboards at `http://<node-ip>:30300`:
 
@@ -547,30 +508,6 @@ cd ansible && ansible all -m ping
 
 ```
 
-## Recent Improvements
-
-### Removed Docker Registry Dependency
-
-- **Eliminated Registry Complexity**: No more Docker registry setup or configuration needed
-- **Direct K3s Image Loading**: Images are now loaded directly into K3s using `k3s ctr images import`
-- **Simplified Deployment**: Removed registry-related configuration from Docker daemon and K3s
-- **Faster Setup**: Direct image loading is faster than pushing to and pulling from a registry
-- **Reduced Resource Usage**: No registry pod consuming cluster resources
-- **No Insecure Registry Configuration**: Eliminated the need for insecure registry settings
-
-### Enhanced Prerequisites Installation
-
-- **Automated SSH Key Setup**: SSH keys for VM access are automatically generated and configured
-- **Comprehensive Package Installation**: All required packages installed in one command
-- **K3S with Kubeconfig**: Automatic kubeconfig setup for kubectl access
-- **Docker User Permissions**: User is automatically added to docker group
-
-### Improved Workflow
-
-- **Streamlined Commands**: Removed setup-registry command, simplified workflow
-- **Better Error Handling**: Enhanced error reporting and recovery
-- **Updated Documentation**: Clear instructions reflecting the new workflow
-
 ## Known Limitations
 
 ### Connection Sharing
@@ -585,7 +522,7 @@ cd ansible && ansible all -m ping
 After a VM connection is automatically created:
 
 1. Login to Guacamole as admin
-2. Navigate to Settings → Connections
-3. Select the auto-created connection
-4. Click "Permissions" tab
-5. Manually add users or groups with appropriate permissions
+2. Navigate to Settings → Users
+3. Select the user you want to give the access to the connections.
+4. Select the connections you want.
+5. Go to Home to see the connections.

@@ -509,6 +509,10 @@ deploy_stack() {
     echo "Default Keycloak admin credentials:"
     echo "  Username: admin"
     echo "  Password: admin"
+    echo ""    
+    echo "Default Guacamole admin credentials:"
+    echo "  Username: guacadmin"
+    echo "  Password: guacadmin"
 }
 
 cleanup_all() {
@@ -796,7 +800,7 @@ substitute_env_vars() {
 update_system_configs() {
     print_header "UPDATING SYSTEM CONFIGURATIONS"
     
-    print_success "System configurations updated (no registry configuration needed)"
+    print_success "System configurations updated"
 }
 
 # Function to show detected endpoints
@@ -1021,8 +1025,8 @@ case "${1:-help}" in
         show_status
         echo ""
         print_success "You can now:"
-        echo "  - Access Guacamole at: http://$NODE_IP:30080/guacamole/"
-        echo "  - Access Keycloak at: http://$NODE_IP:30081/"
+        echo "  - Access Guacamole at: http://$NODE_IP:30080/guacamole/ (guacadmin/guacadmin)"
+        echo "  - Access Keycloak at: http://$NODE_IP:30081/ (admin/admin)"
         echo "  - Access Grafana at: http://$NODE_IP:30300 (admin/admin)"
         echo "  - Access Prometheus at: http://$NODE_IP:30090"
         echo "  - Create VMs with: ./workflow.sh create-vm"
