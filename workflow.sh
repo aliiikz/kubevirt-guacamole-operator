@@ -422,6 +422,9 @@ deploy_monitoring() {
     echo "Configuring Grafana..."
     kubectl apply -f 05-grafana-config.yaml
     
+    echo "Configuring Grafana dashboards..."
+    kubectl apply -f 05-grafana-dashboards-config.yaml
+    
     echo "Deploying Grafana..."
     kubectl apply -f 06-grafana.yaml
     
@@ -449,6 +452,7 @@ cleanup_monitoring() {
     
     echo "Removing Grafana configs..."
     kubectl delete -f 05-grafana-config.yaml --ignore-not-found=true
+    kubectl delete -f 05-grafana-dashboards-config.yaml --ignore-not-found=true
     
     echo "Removing Node Exporter..."
     kubectl delete -f 04-node-exporter.yaml --ignore-not-found=true
