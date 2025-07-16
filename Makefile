@@ -1,9 +1,5 @@
-# Image URL for vm-watcher - always use registry
-IMG ?= $(REGISTRY_HOST):$(REGISTRY_PORT)/vm-watcher:latest
-
-# Registry configuration - use environment variables
-REGISTRY_HOST ?= $(shell bash -c 'source scripts/detect-ip.sh 2>/dev/null && echo $$NODE_IP || echo 127.0.0.1')
-REGISTRY_PORT ?= 30500
+# Image URL for vm-watcher - using local image
+IMG ?= vm-watcher:latest
 
 # CONTAINER_TOOL defines the container tool to be used for building images
 CONTAINER_TOOL ?= docker
@@ -25,11 +21,12 @@ docker-build: ## Build docker image with the manager
 	$(CONTAINER_TOOL) build -t ${IMG} .
 
 .PHONY: docker-push
-docker-push: ## Push docker image to the registry
-	$(CONTAINER_TOOL) push ${IMG}
+docker-push: ## Load docker image into K3s
+	@echo "Loading image into K3s..."
+	$(CONTAINER_TOOL) save ${IMG} | sudo k3s ctr images import -
 
 .PHONY: docker-build-push
-docker-build-push: docker-build docker-push ## Build and push docker image
+docker-build-push: docker-build docker-push ## Build and load docker image into K3s
 
 .PHONY: build-custom-vm
 build-custom-vm: ## Build custom Ubuntu VM image
@@ -37,12 +34,11 @@ build-custom-vm: ## Build custom Ubuntu VM image
 	cd virtualmachines/custom_image && docker build -t custom-ubuntu-desktop:22.04 .
 
 .PHONY: push-custom-vm
-push-custom-vm: ## Build and push custom Ubuntu VM image to registry
-	@echo "Building and pushing custom Ubuntu VM image to registry..."
+push-custom-vm: ## Build and load custom Ubuntu VM image into K3s
+	@echo "Building and loading custom Ubuntu VM image into K3s..."
 	cd virtualmachines/custom_image && docker build -t custom-ubuntu-desktop:22.04 .
-	docker tag custom-ubuntu-desktop:22.04 $(REGISTRY_HOST):$(REGISTRY_PORT)/custom-ubuntu-desktop:22.04
-	docker push $(REGISTRY_HOST):$(REGISTRY_PORT)/custom-ubuntu-desktop:22.04
-	@echo "Custom VM image pushed to $(REGISTRY_HOST):$(REGISTRY_PORT)/custom-ubuntu-desktop:22.04"
+	docker save custom-ubuntu-desktop:22.04 | sudo k3s ctr images import -
+	@echo "Custom VM image loaded into K3s"
 
 ##@ Deployment
 

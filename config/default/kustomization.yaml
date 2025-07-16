@@ -14,10 +14,10 @@ namePrefix: kubebuilderproject-
 #  pairs:
 #    someName: someValue
 
-# Image replacement for registry
+# Image replacement for K3s local images
 images:
   - name: vm-watcher
-    newName: ${NODE_IP}:30500/vm-watcher
+    newName: vm-watcher
     newTag: latest
 
 resources:

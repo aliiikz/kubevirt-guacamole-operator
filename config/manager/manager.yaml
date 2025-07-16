@@ -64,7 +64,7 @@ spec:
             - --leader-elect
             - --health-probe-bind-address=:8081
           image: vm-watcher:latest
-          imagePullPolicy: Always
+          imagePullPolicy: Never
           name: manager
           env:
             - name: GUACAMOLE_BASE_URL

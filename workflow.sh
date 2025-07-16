@@ -14,8 +14,6 @@ source scripts/detect-ip.sh
 # Configuration
 IMAGE_NAME="vm-watcher"
 IMAGE_TAG="latest"
-REGISTRY_HOST="$NODE_IP"
-REGISTRY_PORT="30500"
 
 print_header() {
     echo -e "${BLUE}"
@@ -46,13 +44,12 @@ show_help() {
     echo "  update-configs          Update configuration files with current IP"
     echo "  setup-kubevirt          Setup KubeVirt (required for VMs)"
     echo "  setup-cdi               Setup CDI (required for VMs)"
-    echo "  setup-registry          Setup Docker Registry"
     echo "  build-operator          Build operator image"
-    echo "  push-operator           Build and push operator to Docker Registry"
+    echo "  push-operator           Build and load operator image into K3s"
     echo "  deploy                  Deploy operator (installs CRDs and deploys operator)"
     echo "  deploy-stack            Deploy Guacamole stack (Guacamole, Postgres, Keycloak)"
     echo "  monitoring              Deploy monitoring stack (Prometheus & Grafana)"
-    echo "  push-custom-vm          Build and push custom Ubuntu Docker image to Registry"
+    echo "  push-custom-vm          Build and load custom Ubuntu image into K3s"
     echo "  create-vm               Create VMs and configure them with Ansible"
     echo "  configure-vms           Configure deployed VMs using Ansible"
     echo "  list-vms                List available VMs and their IPs"
@@ -60,7 +57,7 @@ show_help() {
     echo "  cleanup-monitoring      Clean up monitoring stack"
     echo "  cleanup-all             COMPLETE CLEANUP - Reset cluster to clean slate"
     echo "  force-clean-ns          Force clean stuck namespaces"
-    echo "  full-setup              Complete setup: KubeVirt + CDI + Registry + Build + Push + Deploy + Stack + Monitoring"
+    echo "  full-setup              Complete setup: KubeVirt + CDI + Build + Load + Deploy + Stack + Monitoring"
     echo "  help                    Show this help"
     echo ""
     echo "Examples:"
@@ -69,7 +66,7 @@ show_help() {
     echo "  $0 full-setup         # Complete setup from scratch"
     echo "  $0 create-vm          # Create VMs and configure them"
     echo "  $0 build-operator     # Just build the operator image"
-    echo "  $0 push-operator      # Build and push operator to registry"
+    echo "  $0 push-operator      # Build and load operator into K3s"
     echo "  $0 cleanup-all        # Complete cleanup - removes everything!"
     echo ""
     echo "Note: This script automatically detects the project root directory"
@@ -305,62 +302,18 @@ install_prerequisites() {
     print_success "You can now run: ./workflow.sh full-setup"
 }
 
-setup_registry() {
-    print_header "SETTING UP DOCKER REGISTRY"
-    
-    # Deploy Docker registry (this creates the namespace first)
-    echo -e "${BLUE}Deploying Docker Registry from repository/docker-registry.yaml...${NC}"
-    kubectl apply -f repository/docker-registry.yaml
-    
-    # Wait for namespace to exist (not Ready condition, just existence)
-    echo -e "${BLUE}Waiting for namespace to be created...${NC}"
-    local max_wait=30
-    local elapsed=0
-    while [ $elapsed -lt $max_wait ]; do
-        if kubectl get namespace docker-registry >/dev/null 2>&1; then
-            print_success "Namespace docker-registry created"
-            break
-        fi
-        sleep 2
-        elapsed=$((elapsed + 2))
-    done
-    
-    # Now apply the persistent storage
-    echo -e "${BLUE}Setting up persistent storage for registry...${NC}"
-    kubectl apply -f repository/registry-storage.yaml
-    
-    # Wait for registry pods to be ready
-    echo -e "${BLUE}Waiting for Docker Registry pods to be ready...${NC}"
-    kubectl wait --for=condition=Ready pod -l app=docker-registry -n docker-registry --timeout=180s || true
-    
-    # Check registry status
-    echo -e "${BLUE}Checking Docker Registry deployment status...${NC}"
-    kubectl get pods -n docker-registry
-    
-    # Additional wait for registry to fully start
-    echo -e "${BLUE}Waiting for registry service to be fully available...${NC}"
-    sleep 10
-    
-    print_success "Docker Registry setup completed"
-    echo -e "${GREEN}Registry is available at: ${BLUE}http://$NODE_IP:30500${NC}"
-    echo -e "${GREEN}Registry UI is available at: ${BLUE}http://$NODE_IP:30501${NC}"
-    echo -e "${GREEN}To use: ${BLUE}docker tag <image> $NODE_IP:30500/<image> && docker push $NODE_IP:30500/<image>${NC}"
-}
-
 build_operator() {
     print_header "BUILDING OPERATOR IMAGE"
     
-    FULL_IMAGE_NAME="${REGISTRY_HOST}:${REGISTRY_PORT}/${IMAGE_NAME}:${IMAGE_TAG}"
-    
     echo "Building operator image..."
-    echo "Image name: ${FULL_IMAGE_NAME}"
+    echo "Image name: ${IMAGE_NAME}:${IMAGE_TAG}"
     
-    # Build the Docker image with registry tag
-    docker build -t "${FULL_IMAGE_NAME}" .
+    # Build the Docker image
+    docker build -t "${IMAGE_NAME}:${IMAGE_TAG}" .
     
     echo ""
     echo "Build completed successfully!"
-    echo "Image: ${FULL_IMAGE_NAME}"
+    echo "Image: ${IMAGE_NAME}:${IMAGE_TAG}"
     
     print_success "Operator build completed"
 }
@@ -398,56 +351,46 @@ build_custom_vm_image() {
 }
 
 push_custom_vm_image() {
-    print_header "PUSHING CUSTOM VM IMAGE TO DOCKER REGISTRY"
+    print_header "LOADING CUSTOM VM IMAGE INTO K3S"
     
     CUSTOM_IMAGE_NAME="custom-ubuntu-desktop"
     CUSTOM_IMAGE_TAG="22.04"
     LOCAL_IMAGE_NAME="${CUSTOM_IMAGE_NAME}:${CUSTOM_IMAGE_TAG}"
-    REGISTRY_IMAGE_NAME="${REGISTRY_HOST}:${REGISTRY_PORT}/${CUSTOM_IMAGE_NAME}:${CUSTOM_IMAGE_TAG}"
     
     echo "Building custom Ubuntu desktop image..."
     cd virtualmachines/custom_image
     docker build -t "${LOCAL_IMAGE_NAME}" .
     cd ../..
     
-    echo "Tagging image for registry..."
-    docker tag "${LOCAL_IMAGE_NAME}" "${REGISTRY_IMAGE_NAME}"
-    
-    echo "Pushing to Docker registry..."
-    if docker push "${REGISTRY_IMAGE_NAME}" 2>/dev/null; then
-        print_success "Successfully pushed custom VM image to Docker Registry"
-        echo "Registry image: ${REGISTRY_IMAGE_NAME}"
+    echo "Loading custom VM image into K3s..."
+    if docker save ${LOCAL_IMAGE_NAME} | sudo k3s ctr images import -; then
+        print_success "Successfully loaded custom VM image into K3s"
+        echo "Image: ${LOCAL_IMAGE_NAME}"
     else
-        print_warning "Docker Registry push failed. Possible reasons:"
-        echo "      - Docker Registry is not running (run: ./workflow.sh setup-registry)"
-        echo "      - Network connectivity issues"
-        echo ""
-        echo "      To push manually later:"
-        echo "      docker tag ${LOCAL_IMAGE_NAME} ${REGISTRY_IMAGE_NAME}"
-        echo "      docker push ${REGISTRY_IMAGE_NAME}"
+        print_error "Failed to load custom VM image into K3s"
+        echo "Make sure K3s is running and the image was built successfully"
+        exit 1
     fi
     
-    print_success "Custom VM image push completed"
+    print_success "Custom VM image loaded into K3s"
 }
 
 push_operator() {
-    print_header "PUSHING OPERATOR TO DOCKER REGISTRY"
+    print_header "LOADING OPERATOR IMAGE INTO K3S"
     
-    FULL_IMAGE_NAME="${REGISTRY_HOST}:${REGISTRY_PORT}/${IMAGE_NAME}:${IMAGE_TAG}"
+    LOCAL_IMAGE_NAME="${IMAGE_NAME}:${IMAGE_TAG}"
     
-    echo "Pushing to Docker registry..."
-    if docker push ${FULL_IMAGE_NAME} 2>/dev/null; then
-        print_success "Successfully pushed to Docker Registry"
+    echo "Loading operator image into K3s..."
+    if docker save ${LOCAL_IMAGE_NAME} | sudo k3s ctr images import -; then
+        print_success "Successfully loaded operator image into K3s"
+        echo "Image: ${LOCAL_IMAGE_NAME}"
     else
-        print_warning "Docker Registry push failed. Possible reasons:"
-        echo "      - Docker Registry is not running (run: ./workflow.sh setup-registry)"
-        echo "      - Network connectivity issues"
-        echo ""
-        echo "      To push manually later:"
-        echo "      docker push ${FULL_IMAGE_NAME}"
+        print_error "Failed to load operator image into K3s"
+        echo "Make sure K3s is running and the image was built successfully"
+        exit 1
     fi
     
-    print_success "Push to registry completed"
+    print_success "Operator image loaded into K3s"
 }
 
 deploy_monitoring() {
@@ -591,7 +534,7 @@ cleanup_all() {
     
     # 4. Delete project namespaces
     echo -e "${BLUE}Deleting project namespaces...${NC}"
-    for ns in kubebuilderproject-system kubevirt cdi monitoring docker-registry guacamole; do
+    for ns in kubebuilderproject-system kubevirt cdi monitoring guacamole; do
         if kubectl get namespace $ns >/dev/null 2>&1; then
             echo "  Deleting namespace: $ns"
             kubectl delete namespace $ns --ignore-not-found=true --timeout=30s 2>/dev/null || true
@@ -600,7 +543,7 @@ cleanup_all() {
     
     # 5. Force cleanup stuck namespaces
     echo -e "${BLUE}Force cleaning any stuck namespaces...${NC}"
-    for ns in kubebuilderproject-system kubevirt cdi monitoring docker-registry guacamole; do
+    for ns in kubebuilderproject-system kubevirt cdi monitoring guacamole; do
         if kubectl get namespace $ns >/dev/null 2>&1; then
             echo "  Force cleaning namespace: $ns"
             kubectl patch namespace $ns --type='merge' -p='{"spec":{"finalizers":[]}}' 2>/dev/null || true
@@ -609,13 +552,13 @@ cleanup_all() {
     
     # 6. Clean up Docker resources
     echo -e "${BLUE}Cleaning up Docker resources...${NC}"
-    docker ps -a | grep -E "(registry|vm-watcher)" | awk '{print $1}' | xargs -r docker rm -f 2>/dev/null || true
-    docker images | grep -E "(vm-watcher|registry)" | awk '{print $3}' | xargs -r docker rmi -f 2>/dev/null || true
+    docker ps -a | grep -E "(vm-watcher)" | awk '{print $1}' | xargs -r docker rm -f 2>/dev/null || true
+    docker images | grep -E "(vm-watcher)" | awk '{print $3}' | xargs -r docker rmi -f 2>/dev/null || true
     
     # 7. Verification
     echo -e "${BLUE}Cleanup verification...${NC}"
     echo "Remaining namespaces:"
-    kubectl get namespaces | grep -E "(kubebuilder|kubevirt|cdi|monitoring|docker-registry|guacamole)" || echo "✅ No project namespaces found"
+    kubectl get namespaces | grep -E "(kubebuilder|kubevirt|cdi|monitoring|guacamole)" || echo "✅ No project namespaces found"
     
     print_success "Cleanup completed!"
     echo -e "${GREEN}You can now run: ${BLUE}./workflow.sh full-setup${GREEN} to deploy everything fresh${NC}"
@@ -656,13 +599,8 @@ show_status() {
     docker images | grep -E "(vm-watcher|controller|custom-ubuntu)" || echo "No operator images found"
     echo ""
     
-    echo -e "${BLUE}Docker Registry Status:${NC}"
-    if curl -s http://$REGISTRY_HOST:$REGISTRY_PORT/v2/ >/dev/null 2>&1; then
-        print_success "Docker Registry is running at http://$REGISTRY_HOST:$REGISTRY_PORT"
-        print_success "Registry UI is available at http://$REGISTRY_HOST:30501"
-    else
-        print_warning "Docker Registry is not accessible"
-    fi
+    echo -e "${BLUE}K3s Images:${NC}"
+    sudo k3s ctr images list | grep -E "(vm-watcher|custom-ubuntu)" || echo "No operator images loaded in K3s"
     echo ""
     
     echo -e "${BLUE}Kubernetes Pods:${NC}"
@@ -694,7 +632,7 @@ force_clean_namespaces() {
     print_header "FORCE CLEANING STUCK NAMESPACES"
     
     echo -e "${BLUE}Checking for stuck namespaces...${NC}"
-    stuck_namespaces=$(kubectl get namespaces | grep -E "(kubevirt|cdi|kubebuilder|monitoring|docker-registry|guacamole)" | grep "Terminating" | awk '{print $1}' || true)
+    stuck_namespaces=$(kubectl get namespaces | grep -E "(kubevirt|cdi|kubebuilder|monitoring|guacamole)" | grep "Terminating" | awk '{print $1}' || true)
     
     if [ -z "$stuck_namespaces" ]; then
         print_success "No stuck namespaces found"
@@ -717,7 +655,7 @@ force_clean_namespaces() {
     sleep 5
     
     # Check result
-    remaining=$(kubectl get namespaces | grep -E "(kubevirt|cdi|kubebuilder|monitoring|docker-registry|guacamole)" | grep "Terminating" || true)
+    remaining=$(kubectl get namespaces | grep -E "(kubevirt|cdi|kubebuilder|monitoring|guacamole)" | grep "Terminating" || true)
     if [ -z "$remaining" ]; then
         print_success "All namespaces cleaned successfully"
     else
@@ -853,50 +791,13 @@ substitute_env_vars() {
 update_system_configs() {
     print_header "UPDATING SYSTEM CONFIGURATIONS"
     
-    # Update Docker daemon configuration
-    if command -v docker >/dev/null 2>&1; then
-        print_success "Updating Docker configuration for registry at $NODE_IP:30500"
-        sudo tee /etc/docker/daemon.json > /dev/null <<EOF
-{
-  "insecure-registries": ["$NODE_IP:30500"]
-}
-EOF
-        sudo systemctl restart docker
-        print_success "Docker configuration updated"
-    fi
-    
-    # Update K3s configuration
-    if systemctl is-active --quiet k3s; then
-        print_success "Updating K3s configuration for registry at $NODE_IP:30500"
-        sudo mkdir -p /etc/rancher/k3s
-        sudo tee /etc/rancher/k3s/registries.yaml > /dev/null <<EOF
-mirrors:
-  "$NODE_IP:30500":
-    endpoint:
-      - "http://$NODE_IP:30500"
-configs:
-  "$NODE_IP:30500":
-    tls:
-      insecure_skip_verify: true
-EOF
-        sudo systemctl restart k3s
-        print_success "K3s configuration updated"
-    fi
-    
-    # Update CDI configuration
-    if kubectl get cdi cdi >/dev/null 2>&1; then
-        print_success "Updating CDI configuration for insecure registry"
-        kubectl patch cdi cdi --type='merge' -p="{\"spec\":{\"config\":{\"insecureRegistries\":[\"$NODE_IP:30500\"]}}}"
-        print_success "CDI configuration updated"
-    fi
+    print_success "System configurations updated (no registry configuration needed)"
 }
 
 # Function to show detected endpoints
 show_endpoints() {
     print_header "DETECTED ENDPOINTS"
     echo -e "${GREEN}Node IP: ${BLUE}$NODE_IP${NC}"
-    echo -e "${GREEN}Registry: ${BLUE}http://$NODE_IP:30500${NC}"
-    echo -e "${GREEN}Registry UI: ${BLUE}http://$NODE_IP:30501${NC}"
     echo -e "${GREEN}Guacamole: ${BLUE}http://$NODE_IP:30080/guacamole/${NC}"
     echo -e "${GREEN}Keycloak: ${BLUE}http://$NODE_IP:30081${NC}"
     echo -e "${GREEN}Grafana: ${BLUE}http://$NODE_IP:30300${NC}"
@@ -1009,9 +910,6 @@ case "${1:-help}" in
     setup-cdi)
         install_cdi
         ;;        
-    setup-registry)
-        setup_registry
-        ;;
     build-operator)
         build_operator
         ;;
@@ -1079,33 +977,27 @@ case "${1:-help}" in
         print_success "Step 5/10: CDI installed"
         sleep 30
         
-        # Step 6: Setup Docker Registry
-        setup_registry
-        echo ""
-        print_success "Step 6/10: Docker Registry setup completed"
-        sleep 30
-        
-        # Step 7: Build and push operator
+        # Step 6: Build and load operator
         build_operator
         push_operator
         echo ""
-        print_success "Step 7/10: Operator built and pushed"
+        print_success "Step 6/9: Operator built and loaded into K3s"
         
-        # Step 8: Deploy operator
+        # Step 7: Deploy operator
         make install
         make deploy
         echo ""
-        print_success "Step 8/10: Operator deployed"
+        print_success "Step 7/9: Operator deployed"
         
-        # Step 9: Deploy Guacamole stack
+        # Step 8: Deploy Guacamole stack
         deploy_stack
         echo ""
-        print_success "Step 9/10: Guacamole stack deployed"
+        print_success "Step 8/9: Guacamole stack deployed"
         
-        # Step 10: Deploy monitoring
+        # Step 9: Deploy monitoring
         deploy_monitoring
         echo ""
-        print_success "Step 10/10: Monitoring stack deployed"
+        print_success "Step 9/9: Monitoring stack deployed"
         
         print_header "SETUP COMPLETE!"
         echo "Full setup completed successfully!"

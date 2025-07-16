@@ -125,9 +125,9 @@ watch kubectl get pods --all-namespaces
 1. **Installs Prerequisites** - K3S, Docker, Go, Ansible, SSH keys, and required packages
 2. **Detects IP and configures** - Automatically detects node IP and updates configurations
 3. **Installs KubeVirt and CDI** - Sets up virtual machine management
-4. **Configures container registry** - Sets up private Docker registry with insecure registry settings
-5. **Builds and deploys operator** - Compiles, pushes, and deploys the KubeVirt operator
-6. **Deploys Guacamole stack** - Sets up Guacamole, PostgreSQL, and Keycloak with dynamic paths
+4. **Builds and loads operator** - Compiles and loads the operator image directly into K3s
+5. **Deploys operator** - Installs CRDs and deploys the operator
+6. **Deploys Guacamole stack** - Sets up Guacamole, PostgreSQL, and Keycloak
 7. **Deploys monitoring** - Sets up Prometheus and Grafana for system monitoring
 
 ### Manual Setup
@@ -180,10 +180,7 @@ Install CDI (Containerized Data Importer):
 #### 5. Deploy Application Components
 
 ```bash
-# Deploy container registry
-./workflow.sh setup-registry
-
-# Build and push operator
+# Build and load operator image into K3s
 ./workflow.sh build-operator
 ./workflow.sh push-operator
 
@@ -549,6 +546,30 @@ cd ansible && ansible-playbook configure-vms.yml -v
 cd ansible && ansible all -m ping
 
 ```
+
+## Recent Improvements
+
+### Removed Docker Registry Dependency
+
+- **Eliminated Registry Complexity**: No more Docker registry setup or configuration needed
+- **Direct K3s Image Loading**: Images are now loaded directly into K3s using `k3s ctr images import`
+- **Simplified Deployment**: Removed registry-related configuration from Docker daemon and K3s
+- **Faster Setup**: Direct image loading is faster than pushing to and pulling from a registry
+- **Reduced Resource Usage**: No registry pod consuming cluster resources
+- **No Insecure Registry Configuration**: Eliminated the need for insecure registry settings
+
+### Enhanced Prerequisites Installation
+
+- **Automated SSH Key Setup**: SSH keys for VM access are automatically generated and configured
+- **Comprehensive Package Installation**: All required packages installed in one command
+- **K3S with Kubeconfig**: Automatic kubeconfig setup for kubectl access
+- **Docker User Permissions**: User is automatically added to docker group
+
+### Improved Workflow
+
+- **Streamlined Commands**: Removed setup-registry command, simplified workflow
+- **Better Error Handling**: Enhanced error reporting and recovery
+- **Updated Documentation**: Clear instructions reflecting the new workflow
 
 ## Known Limitations
 
