@@ -522,7 +522,6 @@ cd ansible && ansible all -m ping
 After a VM connection is automatically created:
 
 1. Login to Guacamole as admin
-2. Navigate to Settings → Users
-3. Select the user you want to give the access to the connections.
-4. Select the connections you want.
-5. Go to Home to see the connections.
+2. Navigate to Settings → Groups
+3. Create a new group named "guacusers" and grant all the permissions. (for testing only)
+4. Go to Home to see the connections.

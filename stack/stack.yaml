@@ -4,6 +4,16 @@ metadata:
   name: guacamole
 ---
 apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secret
+  namespace: guacamole
+type: Opaque
+data:
+  POSTGRES_USER: Z3VhY2Ftb2xl
+  POSTGRES_PASSWORD: Z3VhY2Ftb2xl
+---
+apiVersion: v1
 kind: ConfigMap
 metadata:
   name: guacamole-config
@@ -17,19 +27,19 @@ data:
     postgresql-database=guacamole_db
     postgresql-username=guacamole
     postgresql-password=guacamole
-
-    # OpenID Connect Configuration
+    openid-allow-unverified-users=true
+    openid-username-claim-type=preferred_username
+    postgresql-auto-create-accounts=true
+    openid-auto-create-groups=true
+    openid-groups-claim-type=groups
+    openid-groups-claim-name=groups
+    openid-authorization-groups-attribute=groups
     openid-authorization-endpoint=http://${NODE_IP}:30081/realms/GuacamoleRealm/protocol/openid-connect/auth
     openid-token-endpoint=http://${NODE_IP}:30081/realms/GuacamoleRealm/protocol/openid-connect/token
     openid-jwks-endpoint=http://${NODE_IP}:30081/realms/GuacamoleRealm/protocol/openid-connect/certs
     openid-issuer=http://${NODE_IP}:30081/realms/GuacamoleRealm
     openid-client-id=guacamole
     openid-redirect-uri=http://${NODE_IP}:30080/guacamole/
-
-    # User Management
-    openid-username-claim=preferred_username
-    openid-allow-unverified-users=true
-    postgresql-auto-create-accounts=true
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -52,15 +62,56 @@ data:
           "rootUrl": "http://${NODE_IP}:30080/guacamole/",
           "baseUrl": "http://${NODE_IP}:30080/guacamole/",
           "standardFlowEnabled": true,
-          "implicitFlowEnabled": true
+          "implicitFlowEnabled": true,
+          "protocolMappers": [
+            {
+              "name": "preferred_username",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-usermodel-property-mapper",
+              "consentRequired": false,
+              "config": {
+                "user.attribute": "username",
+                "claim.name": "preferred_username",
+                "jsonType.label": "String",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "groups",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-group-membership-mapper",
+              "consentRequired": false,
+              "config": {
+                "full.path": "false",
+                "claim.name": "groups",
+                "jsonType.label": "String",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            }
+          ]
+        }
+      ],
+      "groups": [
+        {
+          "name": "guacusers",
+          "path": "/guacusers",
+          "attributes": {}
         }
       ],
       "users": [
         {
           "username": "testuser",
           "enabled": true,
+          "email": "testuser@test.com",
           "firstName": "Test",
           "lastName": "User",
+          "groups": [
+            "guacusers"
+          ],
           "credentials": [
             {
               "type": "password",
@@ -71,6 +122,30 @@ data:
         }
       ]
     }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: guacamole-db-pvc
+  namespace: guacamole
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: keycloak-db-pvc
+  namespace: guacamole
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
 ---
 apiVersion: v1
 kind: Service
@@ -114,6 +189,35 @@ spec:
       port: 8080
       targetPort: 8080
       nodePort: 30080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak-db
+  namespace: guacamole
+spec:
+  selector:
+    app: keycloak-db
+  ports:
+    - protocol: TCP
+      port: 5432
+      targetPort: 5432
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  namespace: guacamole
+spec:
+  type: NodePort
+  selector:
+    app: keycloak
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+      nodePort: 30081
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -242,6 +346,41 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+  name: keycloak-db
+  namespace: guacamole
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: keycloak-db
+  template:
+    metadata:
+      labels:
+        app: keycloak-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          env:
+            - name: POSTGRES_DB
+              value: keycloak
+            - name: POSTGRES_USER
+              value: keycloak
+            - name: POSTGRES_PASSWORD
+              value: keycloak
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: keycloak-db-storage
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: keycloak-db-storage
+          persistentVolumeClaim:
+            claimName: keycloak-db-pvc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
   name: keycloak
   namespace: guacamole
 spec:
@@ -270,62 +409,18 @@ spec:
             - name: KC_DB
               value: postgres
             - name: KC_DB_URL
-              value: jdbc:postgresql://postgres:5432/keycloak
+              value: jdbc:postgresql://keycloak-db:5432/keycloak
             - name: KC_DB_USERNAME
-              value: guacamole
+              value: keycloak
             - name: KC_DB_PASSWORD
-              value: guacamole
-            - name: KC_SPI_EVENTS_LISTENER_SAMPLE_EVENT_LISTENER_ENABLED
-              value: "true"
+              value: keycloak
           ports:
             - containerPort: 8080
           volumeMounts:
-            - name: keycloak-providers
-              mountPath: /opt/keycloak/providers
             - name: keycloak-realm
-              mountPath: /opt/keycloak/data/import
+              mountPath: /opt/keycloak/data/import/guacamole-realm.json
+              subPath: guacamole-realm.json
       volumes:
-        - name: keycloak-providers
-          hostPath:
-            path: ${PROJECT_ROOT}/stack/keycloak/providers
         - name: keycloak-realm
           configMap:
             name: keycloak-guacamole-realm
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: keycloak
-  namespace: guacamole
-spec:
-  type: NodePort
-  selector:
-    app: keycloak
-  ports:
-    - protocol: TCP
-      port: 8080
-      targetPort: 8080
-      nodePort: 30081
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: postgres-secret
-  namespace: guacamole
-type: Opaque
-data:
-  POSTGRES_USER: Z3VhY2Ftb2xl
-  POSTGRES_PASSWORD: Z3VhY2Ftb2xl
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: guacamole-db-pvc
-  namespace: guacamole
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 2Gi
-  storageClassName: local-path
